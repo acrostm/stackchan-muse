@@ -1,5 +1,10 @@
 import unittest
 import json
+import os
+from pathlib import Path
+import tempfile
+from unittest.mock import MagicMock, patch
+from tools.codex_review_gate import main
 from tools.codex_review_gate import BOT, evaluate
 
 HEAD = 'a' * 40
@@ -14,6 +19,33 @@ def review(**changes):
 
 
 class ReviewGateTests(unittest.TestCase):
+    def test_fork_failure_cannot_prevent_another_pr_approval_revocation(self):
+        repository = 'owner/repo'
+        api = MagicMock()
+        api.pages.side_effect = lambda path: (
+            [{'number': n, 'base': {'ref': 'main'}} for n in (1, 2)] if path == '/pulls'
+            else [review(state='CHANGES_REQUESTED')] if path.endswith('/reviews') else [])
+
+        def request(path, data=None, method=None):
+            if path in ('/pulls/1', '/pulls/2'):
+                return {'head': {'sha': HEAD, 'repo': {'full_name':
+                        'outsider/fork' if path.endswith('/1') else repository}},
+                        'base': {'ref': 'main', 'repo': {'full_name': repository}}}
+            return {'id': 123}
+
+        api.request.side_effect = request
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory) / 'event.json'
+            event.write_text(json.dumps({'workflow_run': {}}))
+            with patch.dict(os.environ, {'GITHUB_EVENT_PATH': str(event),
+                                         'GITHUB_REPOSITORY': repository, 'GH_TOKEN': 'test'}), \
+                    patch('tools.codex_review_gate.GitHub', return_value=api):
+                self.assertEqual(main(), 1)
+        self.assertTrue(any(c.args[0] == '/pulls/2' for c in api.request.call_args_list))
+        conclusions = [c.args[1]['conclusion'] for c in api.request.call_args_list
+                       if c.kwargs.get('method') == 'PATCH']
+        self.assertEqual(conclusions, ['failure', 'action_required'])
+
     def test_native_official_summary_requires_exact_completed_clean_verdict(self):
         def summary(**changes):
             state = {'commit_sha': HEAD, 'status': 'completed',

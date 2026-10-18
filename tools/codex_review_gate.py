@@ -78,8 +78,17 @@ def main(number_override=None):
     if 'workflow_run' in event and number_override is None:
         # The PR workflow is only a wake-up signal. Ignore its result, code,
         # artifacts and PR metadata; independently re-read every open PR.
-        results = [main(pr['number']) for pr in api.pages('/pulls')
-                   if pr['base']['ref'] == 'main']
+        results = []
+        for pr in api.pages('/pulls'):
+            if pr['base']['ref'] != 'main':
+                continue
+            try:
+                results.append(main(pr['number']))
+            except Exception:
+                # One unsupported fork or API failure must not prevent another
+                # PR's previously successful verdict from being revoked.
+                results.append(1)
+                print(f"Verification failed for PR {pr['number']}; continuing other PRs.")
         return int(any(results))
     number = (event.get('pull_request') or event.get('issue') or {}).get('number')
     if number_override is not None:
