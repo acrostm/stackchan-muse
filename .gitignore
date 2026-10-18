@@ -1,0 +1,22 @@
+# Local secrets and device state
+.private/
+.env
+.env.*
+!.env.example
+backups/
+*.bin
+*.elf
+*.map
+*.log
+*.pem
+!firmware/esp32/dev_signing_key.pem
+# Local tools and builds
+.toolchains/
+.venv/
+build/
+build-*/
+dist/
+artifacts/
+__pycache__/
+*.py[cod]
+.DS_Store

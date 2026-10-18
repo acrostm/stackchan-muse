@@ -1,0 +1,11 @@
+{
+  "muse_sdk_token": "",
+  "doubao": {
+    "api_key": "",
+    "app_id": "",
+    "access_token": "",
+    "resource_id": "seed-tts-2.0",
+    "speaker": "zh_female_vv_uranus_bigtts"
+  },
+  "tts_proxy_token": ""
+}

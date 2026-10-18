@@ -1,0 +1,142 @@
+{
+  "musechan": {
+    "url": "https://github.com/Tjtelenda/musechan",
+    "commit": "4eab881f95f849fe823b0645f7bf027770f45a2a"
+  },
+  "esp_idf": {
+    "version": "v6.0.1",
+    "commit": "8c19b156084a0753687347cca1f5355782893533",
+    "submodules": [
+      {
+        "path": "components/bootloader/subproject/components/micro-ecc/micro-ecc",
+        "expected_commit": "24c60e243580c7868f4334a1ba3123481fe1aa48",
+        "local_commit": "24c60e243580c7868f4334a1ba3123481fe1aa48",
+        "matches": true
+      },
+      {
+        "path": "components/bt/controller/lib_esp32",
+        "expected_commit": "6a3c709f402f5a39a056a2097f3997dc4b8436cd",
+        "local_commit": "e4281c149690558467f75137d64bd5334076e7e1",
+        "matches": false
+      },
+      {
+        "path": "components/bt/controller/lib_esp32c2/esp32c2-bt-lib",
+        "expected_commit": "a1e63f9079c48dbb01033f7930ba09f9336ea6ca",
+        "local_commit": "6a5c0b8bfca1a2e984e89431b8ebf9b521dad5ea",
+        "matches": false
+      },
+      {
+        "path": "components/bt/controller/lib_esp32c3_family",
+        "expected_commit": "ebd6043a8e3c3bbde45ee483895303b9c1229ab5",
+        "local_commit": "ebd6043a8e3c3bbde45ee483895303b9c1229ab5",
+        "matches": true
+      },
+      {
+        "path": "components/bt/controller/lib_esp32c5/esp32c5-bt-lib",
+        "expected_commit": "f88aef88a6e5a52528646be7fe652241681f6dd4",
+        "local_commit": "c01b74b63142630ba9861e7e78d02d1bff540a2c",
+        "matches": false
+      },
+      {
+        "path": "components/bt/controller/lib_esp32c6/esp32c6-bt-lib",
+        "expected_commit": "fb39226f5146c8d7483c85235eb8fd9e30b95146",
+        "local_commit": "dbbe6a3d367e392c20b60220ae85e2f7f2ab8375",
+        "matches": false
+      },
+      {
+        "path": "components/bt/controller/lib_esp32h2/esp32h2-bt-lib",
+        "expected_commit": "747bb45fa89b851bb416ec11359538664cdbb7bc",
+        "local_commit": "f3a9470751be53e58411c9d5fe0cf2c66713fadd",
+        "matches": false
+      },
+      {
+        "path": "components/bt/esp_ble_mesh/lib/lib",
+        "expected_commit": "e44762384ed104a0ebc78f134eeba5f3ab648ddc",
+        "local_commit": "8b693178d76ec2578abf46aec53c2fb895b63df7",
+        "matches": false
+      },
+      {
+        "path": "components/bt/host/nimble/nimble",
+        "expected_commit": "7075927f97c648af650a288e94a8c80dd7f00c27",
+        "local_commit": "7075927f97c648af650a288e94a8c80dd7f00c27",
+        "matches": true
+      },
+      {
+        "path": "components/cmock/CMock",
+        "expected_commit": "eeecc49ce8af123cf8ad40efdb9673e37b56230f",
+        "local_commit": "eeecc49ce8af123cf8ad40efdb9673e37b56230f",
+        "matches": true
+      },
+      {
+        "path": "components/esp_coex/lib",
+        "expected_commit": "28761900446e46452e252c46092f54ec52fb4707",
+        "local_commit": "28761900446e46452e252c46092f54ec52fb4707",
+        "matches": true
+      },
+      {
+        "path": "components/esp_phy/lib",
+        "expected_commit": "ac744ff2c5c39c63f8cdd503d4074905647fdbb6",
+        "local_commit": "ac744ff2c5c39c63f8cdd503d4074905647fdbb6",
+        "matches": true
+      },
+      {
+        "path": "components/esp_wifi/lib",
+        "expected_commit": "cd66d383a2634e2c7a1998a7d82c5ea41074c5af",
+        "local_commit": "cd66d383a2634e2c7a1998a7d82c5ea41074c5af",
+        "matches": true
+      },
+      {
+        "path": "components/heap/tlsf",
+        "expected_commit": "2867f6883a12920b1969ff9624c0ab0e4185c2ce",
+        "local_commit": "2867f6883a12920b1969ff9624c0ab0e4185c2ce",
+        "matches": true
+      },
+      {
+        "path": "components/lwip/lwip",
+        "expected_commit": "fd432e4ee2cfb7f7f1c7eb7227e0173412e7b84e",
+        "local_commit": "fd432e4ee2cfb7f7f1c7eb7227e0173412e7b84e",
+        "matches": true
+      },
+      {
+        "path": "components/mbedtls/mbedtls",
+        "expected_commit": "582ff482038db6e4010dbf6f943d97b05ad06ea5",
+        "local_commit": "582ff482038db6e4010dbf6f943d97b05ad06ea5",
+        "matches": true
+      },
+      {
+        "path": "components/openthread/lib",
+        "expected_commit": "c560c3c990560e60f835d1bb325e4be3e1cc2e57",
+        "local_commit": "776fc2772066d4365cfb073d5e1e7a4083108965",
+        "matches": false
+      },
+      {
+        "path": "components/openthread/openthread",
+        "expected_commit": "9b887f6bd1437170fc9bcb726f32185ccb3cb841",
+        "local_commit": "227561fe2446fa57e8a1aa192c81e31396db9ac9",
+        "matches": false
+      },
+      {
+        "path": "components/protobuf-c/protobuf-c",
+        "expected_commit": "abc67a11c6db271bedbb9f58be85d6f4e2ea8389",
+        "local_commit": "abc67a11c6db271bedbb9f58be85d6f4e2ea8389",
+        "matches": true
+      },
+      {
+        "path": "components/spiffs/spiffs",
+        "expected_commit": "ad902cadceb39d0825a97e25ecb5867641f606ba",
+        "local_commit": "ad902cadceb39d0825a97e25ecb5867641f606ba",
+        "matches": true
+      },
+      {
+        "path": "components/unity/unity",
+        "expected_commit": "bf560290f6020737eafaa8b5cbd2177c3956c03f",
+        "local_commit": "bf560290f6020737eafaa8b5cbd2177c3956c03f",
+        "matches": true
+      }
+    ]
+  },
+  "host_test_cjson": {
+    "version": "v1.7.19",
+    "origin": "https://github.com/DaveGamble/cJSON"
+  }
+}

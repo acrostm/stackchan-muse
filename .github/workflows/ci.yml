@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repository:
+    name: Repository policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 tools/check_repository.py
+      - run: git show --format= --check HEAD -- . ":!firmware/**" ":!LICENSE"
+      - run: python3 -m unittest discover -s tests -v
+
+  firmware:
+    name: Firmware (${{ matrix.board }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    container: espressif/idf:v6.0.1
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [stackchan, cores3]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build account-free firmware and check partition size
+        shell: bash
+        working-directory: firmware/esp32
+        env:
+          BOARD: ${{ matrix.board }}
+        run: |
+          . "$IDF_PATH/export.sh" > /dev/null
+          cp ../../docs/firmware-dependencies.lock.yml dependencies.lock
+          idf.py -B "$PWD/build-ci" -DIDF_TARGET=esp32s3 \
+            -DSDKCONFIG="$PWD/build-ci/sdkconfig" \
+            -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;devices/sdkconfig.muse;devices/sdkconfig.muse-m5stack-$BOARD" build
+      - name: Verify reviewed dependency versions
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh" > /dev/null
+          python tools/check_dependency_lock.py firmware/esp32/dependencies.lock
+      - name: Package allowlisted artifacts
+        shell: bash
+        env:
+          BOARD: ${{ matrix.board }}
+        run: |
+          . "$IDF_PATH/export.sh" > /dev/null
+          python tools/package_firmware.py --build firmware/esp32/build-ci --board "$BOARD" --output artifacts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firmware-${{ matrix.board }}-no-token
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+
+  upstream-tests:
+    name: Upstream host tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    container: espressif/idf:v6.0.1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install real host crypto dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends libmbedtls-dev pkg-config
+          python -m pip install cryptography
+      - name: Configure managed components
+        shell: bash
+        working-directory: firmware/esp32
+        run: |
+          . "$IDF_PATH/export.sh" > /dev/null
+          idf.py -B "$PWD/build-host-tests" -DSDKCONFIG="$PWD/build-host-tests/sdkconfig" reconfigure
+      - name: Test with no skipped coverage
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh" > /dev/null
+          python tools/run_upstream_tests.py
+
+  simulator:
+    name: UI simulator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build libsdl2-dev
+      - run: cmake -S firmware/esp32/simulator -B build-simulator -G Ninja -DMUSE_SIM_SANITIZERS=ON -DMUSE_SIM_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build-simulator --parallel 2
+      - run: ctest --test-dir build-simulator --output-on-failure
+
+  quality-gate:
+    name: Quality gate
+    if: ${{ always() }}
+    needs: [repository, firmware, upstream-tests, simulator]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYCODE'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          assert all(job['result'] == 'success' for job in results.values()), results
+          PYCODE

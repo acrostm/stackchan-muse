@@ -1,0 +1,23 @@
+name: Bug report / 缺陷报告
+description: Report a reproducible software or hardware issue without private data.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "Never include tokens, factory images, raw recordings or full device IDs. / 不要上传凭据、原固件、录音及完整设备标识。"
+  - type: input
+    id: version
+    attributes:
+      label: Commit and board / 提交与板型
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps, expected and actual behavior / 复现步骤、预期和实际表现
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted diagnostics / 已脱敏诊断

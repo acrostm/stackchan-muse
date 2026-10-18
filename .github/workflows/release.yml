@@ -1,0 +1,73 @@
+name: Draft firmware release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, for example v0.1.0
+        required: true
+        type: string
+      report:
+        description: Committed JSON path under docs/hardware-validation/
+        required: true
+        type: string
+      hardware_confirmed:
+        description: I have reviewed the real hardware evidence and recovery results
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firmware-release
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require main, explicit acceptance and matching source evidence
+        env:
+          CONFIRMED: ${{ inputs.hardware_confirmed }}
+          REPORT: ${{ inputs.report }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          test "$CONFIRMED" = true
+          python3 tools/check_release.py --report "$REPORT" --version "$VERSION"
+
+  quality:
+    needs: acceptance
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  draft:
+    needs: [acceptance, quality]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: firmware-release
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Collect verified run artifacts and create a draft only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name firmware-stackchan-no-token --dir release-assets/stackchan
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name firmware-cores3-no-token --dir release-assets/cores3
+          (cd release-assets/stackchan && sha256sum --check *.sha256)
+          (cd release-assets/cores3 && sha256sum --check *.sha256)
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA"
+          gh release create "$VERSION" release-assets/*/* --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "MuseStack $VERSION" --notes-file CHANGELOG.md

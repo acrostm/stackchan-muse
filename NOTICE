@@ -1,0 +1,10 @@
+MuseStack includes a source snapshot of MuseChan and Meta's Muse Gadget SDK.
+Upstream: https://github.com/Tjtelenda/musechan
+Snapshot: 4eab881f95f849fe823b0645f7bf027770f45a2a
+License: Apache-2.0 except separately identified third-party files and artwork.
+Original copyright notices and licenses are retained in firmware/.
+See firmware/README.md and firmware/esp32/simulator/THIRD_PARTY.md.
+The Jollybot avatar is NOT covered by Apache-2.0; no additional artwork rights
+are granted by this repository. Check its original terms before redistribution.
+firmware/esp32/dev_signing_key.pem is upstream's PUBLIC development fixture.
+It is not a production secret or a production signing identity.
