@@ -11,6 +11,23 @@ BOT = 'chatgpt-codex-connector[bot]'
 
 
 def evaluate(head, reviews, comments, summaries=()):
+    native = [c for c in summaries if c.get('user', {}).get('login') == BOT
+              and c.get('user', {}).get('type') == 'Bot'
+              and '<!-- codex-pull-request-review-summary -->' in (c.get('body') or '')]
+    native_approved = False
+    if native:
+        body = max(native, key=lambda comment: comment['id']).get('body') or ''
+        marker = re.search(r'<!-- codex-review-state:v1 (.*?) -->', body, re.S)
+        try:
+            verdict = json.loads(marker.group(1))['code_review'] if marker else {}
+        except (ValueError, KeyError, TypeError):
+            verdict = {}
+        native_approved = (isinstance(verdict, dict) and verdict.get('commit_sha') == head
+                          and verdict.get('status') == 'completed'
+                          and verdict.get('has_any_findings') is False
+                          and verdict.get('has_unresolved_findings') is False)
+        if not native_approved:
+            return False, 'Latest native Codex result is not a completed clean review of this commit.'
     candidates = [r for r in reviews if r.get('user', {}).get('login') == BOT
                   and r.get('user', {}).get('type') == 'Bot'
                   and r.get('commit_id') == head]
@@ -23,23 +40,8 @@ def evaluate(head, reviews, comments, summaries=()):
         marker = re.search(r'^MuseStack-Review: APPROVE ([0-9a-f]{40})\s*$', latest.get('body') or '', re.M)
         if latest.get('state') == 'APPROVED' or (marker and marker.group(1) == head):
             return True, 'Official Codex explicitly approves the current commit.'
-    # Native Codex posts a machine-readable summary even when it submits no
-    # formal GitHub review. Accept its exact, completed no-findings verdict.
-    native = [c for c in summaries if c.get('user', {}).get('login') == BOT
-              and c.get('user', {}).get('type') == 'Bot'
-              and '<!-- codex-pull-request-review-summary -->' in (c.get('body') or '')]
-    if native:
-        body = max(native, key=lambda comment: comment['id']).get('body') or ''
-        marker = re.search(r'<!-- codex-review-state:v1 (.*?) -->', body, re.S)
-        try:
-            verdict = json.loads(marker.group(1))['code_review'] if marker else {}
-        except (ValueError, KeyError, TypeError):
-            verdict = {}
-        if (isinstance(verdict, dict) and verdict.get('commit_sha') == head
-                and verdict.get('status') == 'completed'
-                and verdict.get('has_any_findings') is False
-                and verdict.get('has_unresolved_findings') is False):
-            return True, 'Official Codex completed review of this commit with no findings.'
+    if native_approved:
+        return True, 'Official Codex completed review of this commit with no findings.'
     return False, 'Codex has not supplied an explicit current-commit approval.'
 
 
@@ -69,15 +71,23 @@ class GitHub:
         raise ValueError('Review history exceeds the audited pagination limit')
 
 
-def main():
+def main(number_override=None):
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+    repository = os.environ['GITHUB_REPOSITORY']
+    api = GitHub(repository, os.environ['GH_TOKEN'])
+    if 'workflow_run' in event and number_override is None:
+        # The PR workflow is only a wake-up signal. Ignore its result, code,
+        # artifacts and PR metadata; independently re-read every open PR.
+        results = [main(pr['number']) for pr in api.pages('/pulls')
+                   if pr['base']['ref'] == 'main']
+        return int(any(results))
     number = (event.get('pull_request') or event.get('issue') or {}).get('number')
+    if number_override is not None:
+        number = number_override
     if number is None:
         number = int(event.get('inputs', {}).get('pull_request', '0'))
     if type(number) is not int or number < 1:
         raise ValueError('A pull request number is required')
-    repository = os.environ['GITHUB_REPOSITORY']
-    api = GitHub(repository, os.environ['GH_TOKEN'])
     pr = api.request(f'/pulls/{number}')
     head = pr['head']['sha']
     check = api.request('/check-runs', {'name': 'OpenAI review gate', 'head_sha': head,

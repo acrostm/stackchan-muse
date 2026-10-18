@@ -4,8 +4,9 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
-  pull_request_review:
-    types: [submitted, edited, dismissed]
+  workflow_run:
+    workflows: [Codex review signal]
+    types: [completed]
   issue_comment:
     types: [created, edited, deleted]
   workflow_dispatch:

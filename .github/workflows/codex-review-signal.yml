@@ -1,0 +1,16 @@
+name: Codex review signal
+
+on:
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions:
+  contents: read
+
+jobs:
+  signal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      # No checkout, PR code, artifacts, credentials or verdict publication.
+      - run: echo 'Review changed; protected workflow must independently verify it.'

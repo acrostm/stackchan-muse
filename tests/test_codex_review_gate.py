@@ -27,6 +27,7 @@ class ReviewGateTests(unittest.TestCase):
                       {'has_any_findings': True}, {'has_unresolved_findings': True},
                       {'has_any_findings': None}, {'has_any_findings': 0}):
             self.assertFalse(evaluate(HEAD, [], [], [summary(**state)])[0])
+            self.assertFalse(evaluate(HEAD, [review(state='APPROVED')], [], [summary(**state)])[0])
         fake = summary()
         fake['user']['login'] = 'impostor'
         self.assertFalse(evaluate(HEAD, [], [], [fake])[0])
