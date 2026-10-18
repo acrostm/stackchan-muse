@@ -80,10 +80,12 @@ jobs:
         with:
           persist-credentials: false
       - name: Install real host crypto dependencies
+        shell: bash
         run: |
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends libmbedtls-dev pkg-config
-          python -m pip install cryptography
+          . "$IDF_PATH/export.sh" > /dev/null
+          python -c 'import cryptography; print("ESP-IDF crypto dependencies available")'
       - name: Configure managed components
         shell: bash
         working-directory: firmware/esp32

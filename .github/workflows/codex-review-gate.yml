@@ -1,0 +1,39 @@
+name: Verify official Codex review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Pull request number to re-evaluate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write
+
+concurrency:
+  group: codex-gate-${{ github.event.pull_request.number || inputs.pull_request || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify Codex identity and reviewed commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # Never check out or execute a pull request's code with the writable token.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.base.sha || 'main' }}
+          persist-credentials: false
+      - name: Require a genuine current-commit verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/codex_review_gate.py

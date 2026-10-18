@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import tarfile
 import unittest
 from unittest.mock import patch
 
@@ -84,6 +85,22 @@ class RepositoryTests(unittest.TestCase):
             with patch.object(bundle.subprocess, 'check_output', return_value=b'a'*40):
                 with self.assertRaises(ValueError):
                     bundle.package(root, root / 'out', 'stackchan')
+
+    def test_packaging_records_source_commit_with_scoped_container_trust(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'sdkconfig').write_text('CONFIG_GADGET_SDK_TOKEN=""\n')
+            (root / 'app.bin').write_bytes(b'firmware-test')
+            (root / 'flasher_args.json').write_text(json.dumps({
+                'flash_settings': {}, 'flash_files': {'0x20000': 'app.bin'}}))
+            with patch.object(bundle.subprocess, 'check_output', return_value=b'a'*40) as git:
+                bundle.package(root, root / 'out', 'stackchan')
+            git.assert_called_once_with([
+                'git', '-c', f'safe.directory={ROOT}', '-C', str(ROOT), 'rev-parse', 'HEAD'])
+            with tarfile.open(root / 'out/musestack-stackchan-no-account-token.tar.gz') as archive:
+                manifest = json.load(archive.extractfile('manifest.json'))
+                self.assertEqual(manifest['commit'], 'a'*40)
+                self.assertNotIn('sdkconfig', archive.getnames())
 
 
 if __name__ == '__main__':
