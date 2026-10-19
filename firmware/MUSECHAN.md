@@ -119,9 +119,11 @@ renderer underneath those states; changing them is the OTA flow in
   released after display start or touch never answers.
 - LVGL draw buffers stay at 16 lines: larger strips starve the I2S DMA and
   audio breaks up.
-- Servo motion is open-loop (position writes only), with the BSP's default
-  centre values (yaw raw 460, pitch raw 620). A unit whose servos were
-  re-zeroed by other firmware may sit off-centre until calibration is added.
+- Servo motion reads the BSP's per-unit zero positions from the `servo` NVS
+  namespace and reads present position before enabling torque. Units without
+  valid calibration stay torque-free until an operator centres the head and
+  runs `head.calibrate` on the serial console. Motion uses one priority arbiter,
+  speed-limited spring targets, angle/raw limits and torque release at rest.
 - Sensors wired into the pet task: BMI270 IMU, Si12T head touch and
   LTR-553 light/proximity. The pet task logs the gravity vector on every
   event (`shake`, `picked up`, `face down`, `face up`), which is how the
@@ -133,8 +135,8 @@ renderer underneath those states; changing them is the OTA flow in
   command are included behind `CONFIG_MUSE_STACKCHAN_CAMERA` (off by
   default), but captured frames are not usable yet. Do not enable it
   expecting working photos.
-- **Servo calibration and feedback** (the BSP stores per-unit zeros in NVS;
-  reads of present position are not implemented).
+- Per-unit calibration through a graphical screen; calibration and position
+  feedback are currently available through the serial console.
 - General-purpose base RGB LED control (the base LEDs are currently used
   only as the pending-reply indicator), IR and NFC.
 

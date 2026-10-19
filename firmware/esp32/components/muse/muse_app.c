@@ -35,6 +35,12 @@
 
 static const char *TAG = "muse";
 
+static void stop_active_output(void)
+{
+    muse_hatch_turn_cancel();
+    sw_tts_cancel();
+}
+
 /* Applies saved settings to hardware; runs in whichever task changed them. */
 static void on_setting(muse_setting_t what)
 {
@@ -72,6 +78,7 @@ void muse_app_run(const muse_board_t *board)
     ESP_ERROR_CHECK(sw_runtime_start());
     muse_battery_init();
     muse_state_set_caption("WAKING UP...");
+    muse_ui_set_stop_callback(stop_active_output);
     ESP_ERROR_CHECK(muse_ui_start());
     ESP_LOGI(TAG, "UI built: free internal %u", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
 

@@ -46,6 +46,9 @@
 #if CONFIG_MUSE_WATCHER_CAMERA
 #include "boards/watcher_camera.h"
 #endif
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+#include "boards/stackchan_head.h"
+#endif
 
 static const char *TAG = "muse_ui";
 
@@ -125,6 +128,7 @@ static uint16_t *s_image_buf;
 static lv_area_t s_image_area;
 static bool s_image_dirty;
 static bool s_ready;
+static void (*s_stop_callback)(void);
 
 static float s_level;
 static int s_shown_state = -1;
@@ -439,10 +443,20 @@ static void build_button_icons(lv_obj_t *face)
 static void on_canvas_clicked(lv_event_t *e)
 {
     (void)e;
+    if (muse_state_mode(NULL) != MUSE_MODE_IDLE && s_stop_callback)
+        s_stop_callback();
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+    stackchan_head_stop();
+#endif
     muse_state_make_happy();
     /* Tapping the face also reads a waiting reply (on StackChan, that is
      * what turns the base LEDs off). */
     muse_state_set_reply_pending(false);
+}
+
+void muse_ui_set_stop_callback(void (*callback)(void))
+{
+    s_stop_callback = callback;
 }
 
 static const lv_font_t *font_pick(const lv_font_t *full, const lv_font_t *compact)

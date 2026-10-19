@@ -77,6 +77,9 @@ extern "C" {
 #include "muse_tts_json.h"
 #include "muse_wifi.h"
 #include "sw_runtime.h"
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+#include "boards/stackchan_expression.h"
+#endif
 }
 #include "muse_chat_priv.h"
 #include "muse_local_tts.h"
@@ -1414,6 +1417,12 @@ static void message_done(int i, const char *final_text)
     }
     m.done = true;
     mark(M_DONE);
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+    const char *expression_text = final_text && final_text[0] ? final_text
+        : s_turn.texts ? s_turn.texts + i * TEXT_MAX : nullptr;
+    if (expression_text && expression_text[0])
+        stackchan_express_reply(expression_text);
+#endif
     if (s_turn.text) {
         /* The whole text if the pieces didn't add up to it (a line skipped, say): the reader uses it instead. */
         size_t n = m.len;
@@ -2158,10 +2167,14 @@ static void handle(const cmd_t &cmd)
         }
         break;
     case CMD_CANCEL:
-        if (cmd.gen == s_turn.gen && !s_turn.text && s_turn.phase != P_IDLE) {
+        if (cmd.gen == s_turn.gen && s_turn.phase != P_IDLE) {
             ESP_LOGI(TAG, "turn cancelled");
-            remember_incomplete_turn();
-            turn_finish();
+            if (s_turn.text) {
+                turn_fail("CANCELLED");
+            } else {
+                remember_incomplete_turn();
+                turn_finish();
+            }
         }
         break;
     case CMD_TEXT:

@@ -19,6 +19,12 @@ short tap on its talk control is rejected; later hardware work may bind a head
 pat to cancellation. StackChan also retains its dedicated servo calibration and
 arbitration model rather than copying StopWatch motion code.
 
+That motion path now reads the official StackChan BSP's per-unit NVS zeros,
+requires servo feedback before torque, integrates a critical spring at 50 Hz,
+uses one priority arbiter, releases torque at rest, and treats a face tap, head
+pat, face-down pose or power-off as an emergency stop. Finished reply text
+selects a small local nod, tilt, shake or lift without another model call.
+
 Server delivery of every phone message and scheduled-task result is not yet
 proven. The notification inbox only accepts terminal assistant/text events and
 is deliberately bounded; it does not replay a burst of stale history after a

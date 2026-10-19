@@ -133,7 +133,7 @@ certificate was validated; direct Mac probes through both HTTP and SOCKS have
 the same failure. This is tracked as an external proxy-node issue, not counted
 as a successful Muse voice round trip.
 
-Latest local project suite: 42 tests passed. The new idle notification queue is
+Latest local project suite: 43 tests passed. The new idle notification queue is
 bounded to four messages, deduplicates 32 recent IDs, preserves complete UTF-8,
 and only accepts terminal assistant/text events. Real scheduled-task delivery
 still needs a working Muse connection and an actual account-side event.
@@ -160,3 +160,27 @@ notification was accepted by the bounded inbox, woke the speaker path, and
 played 3.01 s of TTS. No panic or reboot occurred. These tests do not prove that
 Muse delivers arbitrary phone messages or scheduled-task results; that requires
 real account events and remains to be observed.
+
+## Safe conversational head motion
+
+The StackChan head now follows the per-unit NVS keys used by M5Stack's BSP
+(`servo/zero_pos_1` and `servo/zero_pos_2`). At boot it reads present position
+before torque is enabled. If calibration is absent or feedback fails, the screen,
+voice and camera paths continue and motion reports unavailable rather than
+moving against guessed values.
+
+One motion task owns both servos. Finished reply text selects only small local
+gestures (nod, affirmative nod, thinking tilt, apology shake or happy lift);
+there is no extra model call. A critically damped 50 Hz trajectory enforces the
+BSP angle/raw limits, command priorities let pet and explicit commands interrupt
+expressive motion, and torque is released after 250 ms at rest. A face tap,
+head pat, face-down pose or power-off cancels motion immediately. `head.stop`,
+`head.status`, `head.calibrate` and `head.look=YAW,PITCH` are available on the
+serial console so an operator can centre the head by hand and save the real
+position without boot-time movement.
+
+The StackChan firmware builds at `0x221000` bytes with 47% of its app slot free.
+The 43-test project suite and UI-independent motion planner pass. Per-unit
+calibration, physical limit observation, audible/visual gesture capture and
+long-duration servo stability still require the attached robot and are not
+claimed as hardware-verified.

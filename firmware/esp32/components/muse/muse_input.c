@@ -46,6 +46,9 @@
 #include "muse_voice.h"
 #include "muse_wifi.h"
 #include "sw_runtime.h"
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+#include "boards/stackchan_head.h"
+#endif
 #if CONFIG_MUSE_WATCHER_CAMERA
 #include "boards/watcher_camera.h"
 #endif
@@ -532,6 +535,9 @@ static void set_face(const char *name)
  */
 static bool console_command(char *line, bool whole)
 {
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+    if (whole && stackchan_head_console_command(line)) return true;
+#endif
     if (whole && sw_console_command(line)) return true;
     if (whole && !strcmp(line, "sw.say")) {
         set_asleep(false, "serial TTS test");

@@ -40,6 +40,9 @@
 #include "muse_state.h"
 #include "muse_wifi.h"
 #include "sw_runtime.h"
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+#include "boards/stackchan_expression.h"
+#endif
 
 static const char *TAG = "muse_voice";
 
@@ -845,6 +848,9 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
     ESP_LOGI(TAG, "%s TTS start (%u chars)",
              notification ? "notification" : "speaker-test", (unsigned)strlen(text));
     sw_text_copy(caption, sizeof(caption), text);
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+    if (notification) stackchan_express_reply(text);
+#endif
     if (!muse_settings_speaker_on()) {
         muse_state_set_caption("%s", caption);
         muse_state_set_reply_pending(notification);

@@ -89,7 +89,9 @@ if(CONFIG_MUSE_ENABLED)
     elseif(CONFIG_MUSE_BOARD_M5STACK_STICKC_PLUS2)
         list(APPEND srcs "boards/board_m5stack_stickc_plus2.c")
     elseif(CONFIG_MUSE_BOARD_M5STACK_STACKCHAN)
-        list(APPEND srcs "boards/board_m5stack_stackchan.c" "boards/stackchan_head.c" "boards/stackchan_pet.c")
+        list(APPEND srcs "boards/board_m5stack_stackchan.c" "boards/stackchan_head.c"
+             "boards/stackchan_motion_core.c" "boards/stackchan_expression.c"
+             "boards/stackchan_expression_plan.c" "boards/stackchan_pet.c")
         if(CONFIG_MUSE_STACKCHAN_CAMERA)
             list(APPEND srcs "boards/stackchan_camera.c")
         endif()

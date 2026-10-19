@@ -1673,7 +1673,9 @@ static const char STACKCHAN_GUIDE[] =
     "Face and head\n"
     "- Mirror your state on the face with stackchan.face: thinking while "
     "you compose a reply, speaking while a reply shows, idle when done.\n"
-    "- Aim the head with stackchan.look: yaw -128..128, pitch 0..90.\n"
+    "- If head motion is available, aim it with stackchan.look: yaw "
+    "-128..128, pitch 0..90. If the command says the head is not "
+    "calibrated, do not claim it moved.\n"
 #if CONFIG_MUSE_STACKCHAN_PENDING_LED
     "- The twelve base LEDs flash amber while a reply has been shown and "
     "not yet acknowledged. Starting the next talk clears them; so do a "
@@ -1745,6 +1747,7 @@ static cJSON *stackchan_guide_command(void) {
 #else
     cJSON_AddBoolToObject(capabilities, "camera_capture", false);
 #endif
+    cJSON_AddBoolToObject(capabilities, "head_motion", stackchan_head_ready());
     cJSON_AddStringToObject(payload, "guide", STACKCHAN_GUIDE);
     return result;
 }
@@ -2005,6 +2008,9 @@ static cJSON *on_ws_command(
         esp_err_t err = stackchan_head_look(yaw->valueint, pitch->valueint);
         if (err == ESP_ERR_NOT_FOUND) {
             return command_error("unavailable", "no StackChan head base found");
+        }
+        if (err == ESP_ERR_INVALID_STATE) {
+            return command_error("unavailable", "StackChan head is not calibrated");
         }
         if (err != ESP_OK) {
             return command_error("internal", "head move failed");

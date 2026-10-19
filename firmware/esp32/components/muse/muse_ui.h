@@ -27,6 +27,10 @@
  */
 esp_err_t muse_ui_start(void);
 
+/* Optional app callback for an intentional face tap: stop chat/TTS output.
+ * Kept as a callback so the UI simulator links without the chat stack. */
+void muse_ui_set_stop_callback(void (*callback)(void));
+
 /* From any task: the screen has gone dark for sleep (and not yet woken). */
 bool muse_ui_dark(void);
 
