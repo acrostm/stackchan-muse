@@ -71,11 +71,14 @@ extern "C" {
 #include "minimp3.h"
 #include "muse_account_api.h"
 #include "muse_link.h"
+#include "muse_notice.h"
 #include "muse_settings.h"
 #include "muse_tts_json.h"
 #include "muse_wifi.h"
+#include "sw_runtime.h"
 }
 #include "muse_chat_priv.h"
+#include "muse_local_tts.h"
 
 #include <xplat/noise/core/ClientSession.h>
 #include <xplat/noise/core/PsaCryptoBackend.h>
@@ -208,6 +211,7 @@ struct msg_t {
     bool text_full;          /* stop at the first truncated delta: retain a prefix */
     bool empty;              /* completed with no text: not the reply (voice turns wait past these) */
     tts_t tts;
+    bool local_attempted;
     uint32_t pcm_start;      /* where its speech starts in the reply audio */
     uint32_t pcm_frames;     /* how long it is; 0 until the MP3 has all arrived */
 };
@@ -243,6 +247,8 @@ struct turn_t {
     bool agent_busy;
     /* TTS */
     int tts_msg;             /* message being fetched (or shown, speaker off), or -1 */
+    bool local_waiting;      /* independent TTS worker owns the pending download */
+    bool direct_tts;         /* streaming PCM from the credentialed TTS worker */
     bool silent;             /* speaker off: tts_msg is paced by silence, not fetched */
     uint8_t *mp3;            /* MP3_BUF */
     size_t mp3_len;
@@ -962,6 +968,10 @@ static void turn_reset_streams(void)
 
 static void turn_finish(void)
 {
+    muse_local_tts_cancel();
+    sw_tts_cancel();
+    s_turn.local_waiting = false;
+    s_turn.direct_tts = false;
     turn_reset_streams();
     s_turn.phase = P_IDLE;
     s_turn.dict_id = s_turn.chat_id = 0;
@@ -1424,6 +1434,19 @@ static const char *msg_id(cJSON *payload, cJSON *event)
     return id && id[0] ? id : nullptr;
 }
 
+static const char *notification_text(cJSON *payload)
+{
+    static const char *const keys[] = {
+        "display_text", "content", "message", "summary", "result", "text",
+    };
+    if (!cJSON_IsObject(payload)) return nullptr;
+    for (const char *key : keys) {
+        const char *text = cJSON_GetStringValue(cJSON_GetObjectItem(payload, key));
+        if (text && text[0]) return text;
+    }
+    return nullptr;
+}
+
 static void on_event(cJSON *line)
 {
     if (strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(line, "type")) ?: "", "event") != 0) {
@@ -1437,11 +1460,23 @@ static void on_event(cJSON *line)
         }
         s_last_seq = v > s_last_seq ? v : s_last_seq;
     }
-    if (s_turn.phase != P_WAIT_REPLY) {
-        return;
-    }
     const char *event = cJSON_GetStringValue(cJSON_GetObjectItem(line, "event")) ?: "";
     cJSON *payload = cJSON_GetObjectItem(line, "payload");
+    if (s_turn.phase != P_WAIT_REPLY) {
+        bool final = !strcmp(event, "delta.message_done") ||
+                     !strcmp(event, "message.assistant") ||
+                     strstr(event, "notification") || strstr(event, "task.completed") ||
+                     strstr(event, "task.result");
+        cJSON *ready = cJSON_GetObjectItem(payload, "display_text_ready");
+        const char *text = notification_text(payload);
+        if (final && !cJSON_IsFalse(ready) && text) {
+            const char *id = msg_id(payload, line);
+            if (muse_notice_publish(id, text)) {
+                ESP_LOGI(TAG, "notification queued (%u chars)", (unsigned)strlen(text));
+            }
+        }
+        return;
+    }
 
     if (!strcmp(event, "agent.status") || !strcmp(event, "task.status")) {
         const char *code = cJSON_GetStringValue(cJSON_GetObjectItem(payload, "activity_code"));
@@ -1529,136 +1564,30 @@ static bool text_replies(void)
 
 static void tts_data(const uint8_t *data, size_t len);
 
-/*
- * Local TTS: POST the reply text to a Piper service and feed the MP3
- * it returns into tts_data(), which the normal decode path plays. The
- * primary URL is normally the home LAN service; the fallback URL is
- * tried once when the primary fails, for use off the LAN. Returns
- * false when no endpoint is configured, the reply has no text, or
- * both endpoints fail, so the caller falls back to the existing
- * behavior (captions, or the Muse speech fetch).
- */
-static const char *local_tts_url(void)
-{
-#if defined(CONFIG_MUSE_LOCAL_TTS_URL)
-    return CONFIG_MUSE_LOCAL_TTS_URL;
-#else
-    return "";
-#endif
-}
-
-static const char *local_tts_fallback_url(void)
-{
-#if defined(CONFIG_MUSE_LOCAL_TTS_FALLBACK_URL)
-    return CONFIG_MUSE_LOCAL_TTS_FALLBACK_URL;
-#else
-    return "";
-#endif
-}
-
-static const char *local_tts_token(void)
-{
-#if defined(CONFIG_MUSE_LOCAL_TTS_TOKEN)
-    return CONFIG_MUSE_LOCAL_TTS_TOKEN;
-#else
-    return "";
-#endif
-}
-
-static bool local_tts_configured(void)
-{
-    const char *url = local_tts_url();
-    return url && url[0];
-}
-
-static esp_err_t local_tts_on_data(esp_http_client_event_t *evt)
-{
-    if (evt->event_id == HTTP_EVENT_ON_DATA) {
-        tts_data((const uint8_t *)evt->data, (size_t)evt->data_len);
-    }
-    return ESP_OK;
-}
-
-/* POST json to one endpoint; playback state is reset per attempt. */
-static bool local_tts_try(msg_t &m, int idx, const char *url, const char *json)
-{
-    m.tts = TTS_ACTIVE;
-    s_turn.tts_msg = idx;
-    s_turn.silent = false;
-    m.pcm_start = s_turn.pcm_out;
-    m.pcm_frames = 0;
-    s_turn.mp3_len = 0;
-    s_turn.mp3_ended = false;
-    s_turn.kbps = 0;
-    s_turn.down_rate = 0;
-    mp3dec_init(&s_turn.dec);
-
-    esp_http_client_config_t cfg = {};
-    cfg.url = url;
-    cfg.method = HTTP_METHOD_POST;
-    cfg.timeout_ms = 45000;
-    cfg.buffer_size = 4096;
-    cfg.event_handler = local_tts_on_data;
-    if (!strncmp(url, "https://", 8)) {
-        cfg.crt_bundle_attach = esp_crt_bundle_attach;
-    }
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) {
-        return false;
-    }
-    esp_http_client_set_header(client, "Content-Type", "application/json");
-    const char *token = local_tts_token();
-    if (token && token[0]) {
-        esp_http_client_set_header(client, "X-Tts-Auth", token);
-    }
-    esp_http_client_set_post_field(client, json, (int)strlen(json));
-    esp_err_t err = esp_http_client_perform(client);
-    int status = esp_http_client_get_status_code(client);
-    esp_http_client_cleanup(client);
-    if (err == ESP_OK && status == 200 && s_turn.mp3_len > 0) {
-        s_turn.mp3_ended = true;
-        ESP_LOGI(TAG, "local TTS: %u bytes of MP3 for message %s", (unsigned)s_turn.mp3_len, m.id);
-        return true;
-    }
-    ESP_LOGW(TAG, "local TTS failed (err %s, HTTP %d, %u bytes); falling back",
-             esp_err_to_name(err), status, (unsigned)s_turn.mp3_len);
-    s_turn.mp3_len = 0;
-    return false;
-}
-
-static bool local_tts_fetch(msg_t &m, int idx, const char *text)
-{
-    const char *url = local_tts_url();
-    if (!url || !url[0] || !text || !text[0]) {
-        return false;
-    }
-    /* JSON-escape the text, capped so one reply stays a short utterance. */
-    size_t cap = LOCAL_TTS_MAX_CHARS * 4 + 16;
-    char *json = (char *)psram_alloc(cap);
-    if (!json) {
-        return false;
-    }
-    if (!muse_tts_json(text, LOCAL_TTS_MAX_CHARS, json, cap, nullptr)) {
-        heap_caps_free(json);
-        return false;
-    }
-
-    bool ok = local_tts_try(m, idx, url, json);
-    if (!ok) {
-        const char *fallback = local_tts_fallback_url();
-        if (fallback && fallback[0]) {
-            ok = local_tts_try(m, idx, fallback, json);
-        }
-    }
-    heap_caps_free(json);
-    return ok;
-}
-
 static void start_tts(void)
 {
-    if (s_turn.tts_msg >= 0) {
-        return;
+    if (s_turn.local_waiting) {
+        auto result = muse_local_tts_take(s_turn.mp3, MP3_BUF, &s_turn.mp3_len);
+        if (result == MUSE_LOCAL_PENDING) return;
+        s_turn.local_waiting = false;
+        if (s_turn.gen != s_gen.load()) {
+            turn_finish();
+            return;
+        }
+        msg_t &message = s_turn.msgs[s_turn.tts_msg];
+        if (result == MUSE_LOCAL_READY && muse_settings_speaker_on()) {
+            s_turn.mp3_ended = true;
+            mark(M_MP3);
+            show_reply_start(message);
+            return;
+        }
+        // Keep captions (or native speech) when synthesis fails. Never retry
+        // this message's local synthesis after a failed/cancelled request.
+        s_turn.mp3_len = 0;
+        message.tts = TTS_QUEUED;
+        s_turn.tts_msg = -1;
     }
+    if (s_turn.tts_msg >= 0) return;
     for (int i = 0; i < s_turn.nmsgs; i++) {
         msg_t &m = s_turn.msgs[i];
         if (m.tts != TTS_QUEUED) {
@@ -1677,16 +1606,37 @@ static void start_tts(void)
             show_reply_start(m);
             return;
         }
-        /*
-         * Local TTS, when configured: speak the reply through the LAN
-         * Piper service. On any failure, fall through to the existing
-         * behavior below (captions, or the Muse speech fetch).
-         */
         const char *reply_text = s_turn.texts ? s_turn.texts + i * TEXT_MAX : nullptr;
-        if (local_tts_configured() && reply_text && reply_text[0]
-                && local_tts_fetch(m, i, reply_text)) {
+        if (!m.local_attempted && reply_text && reply_text[0] && sw_tts_start(reply_text)) {
+            m.local_attempted = true;
+            m.tts = TTS_ACTIVE;
+            m.pcm_start = s_turn.pcm_out;
+            m.pcm_frames = 0;
+            s_turn.tts_msg = i;
+            s_turn.direct_tts = true;
+            s_turn.silent = false;
+            s_turn.local_waiting = false;
+            s_turn.mp3_len = 0;
+            mark(M_TTS);
             show_reply_start(m);
             return;
+        }
+        if (!m.local_attempted && muse_local_tts_configured() && reply_text && reply_text[0]) {
+            m.local_attempted = true;
+            if (muse_local_tts_begin(reply_text)) {
+                m.tts = TTS_ACTIVE;
+                m.pcm_start = s_turn.pcm_out;
+                m.pcm_frames = 0;
+                s_turn.tts_msg = i;
+                s_turn.silent = false;
+                s_turn.local_waiting = true;
+                s_turn.mp3_len = 0;
+                s_turn.mp3_ended = false;
+                s_turn.kbps = s_turn.down_rate = 0;
+                mp3dec_init(&s_turn.dec);
+                mark(M_TTS);
+                return;
+            }
         }
         if (text_replies()) {
             /* Silence in place of the speech paces the captions, and
@@ -1777,7 +1727,40 @@ static void pace_silently(void)
 /* Decodes buffered MP3 while the reply buffer has room. */
 static void decode(void)
 {
+    if (s_turn.local_waiting) return;
     if (s_turn.tts_msg < 0) {
+        return;
+    }
+    if (s_turn.direct_tts) {
+        msg_t &m = s_turn.msgs[s_turn.tts_msg];
+        if (!muse_settings_speaker_on()) {
+            sw_tts_cancel();
+            s_turn.direct_tts = false;
+            s_turn.silent = true;
+            m.pcm_start = s_turn.pcm_out;
+            m.pcm_frames = (uint32_t)(m.len * MIC_RATE / TEXT_CHARS_PER_S);
+            return;
+        }
+        uint8_t pcm[1024];
+        size_t room = xStreamBufferSpacesAvailable(s_out);
+        size_t cap = room < sizeof(pcm) ? room : sizeof(pcm);
+        size_t n = sw_tts_read(pcm, cap & ~(size_t)1);
+        if (n && s_turn.gen == s_gen.load()) {
+            xStreamBufferSend(s_out, pcm, n, 0);
+            s_turn.pcm_out += n / sizeof(int16_t);
+            mark(M_AUDIO);
+        }
+        if (sw_tts_done()) {
+            if (s_turn.pcm_out == m.pcm_start) {
+                m.pcm_frames = (uint32_t)(m.len * MIC_RATE / TEXT_CHARS_PER_S);
+                s_turn.silent = true;
+            } else {
+                m.pcm_frames = s_turn.pcm_out - m.pcm_start;
+                m.tts = TTS_FINISHED;
+                s_turn.tts_msg = -1;
+            }
+            s_turn.direct_tts = false;
+        }
         return;
     }
     if (s_turn.silent) {
@@ -2151,11 +2134,12 @@ static void hatch_task(void *arg)
 {
     (void)arg;
     for (;;) {
+        muse_local_tts_reap();
         cmd_t cmd;
         /* Resting, the socket's keepalive (PING_US) needs no quicker polls.
          * Resting unconnected, Wi-Fi may nap (muse_wifi_nap): wait for a
          * turn or for waking (CMD_WAKE) instead of watching it. */
-        int wait_ms = !s_connected ? (s_resting ? -1 : 200) : s_turn.phase != P_IDLE ? 2 : s_resting ? 500 : 20;
+        int wait_ms = !s_connected ? (s_resting && !muse_local_tts_pending() ? -1 : 200) : s_turn.phase != P_IDLE ? 2 : s_resting ? 500 : 20;
         TickType_t wait = wait_ms < 0 ? portMAX_DELAY : pdMS_TO_TICKS(wait_ms);
         if (xQueueReceive(s_cmds, &cmd, wait) == pdTRUE) {
             handle(cmd);

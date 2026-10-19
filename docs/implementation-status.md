@@ -113,3 +113,41 @@ PR #1–#4 已在全部 CI 与对应当前提交的官方 Codex 审查通过后�
 新增可选 Mac 固定目标 TLS 透传中继，设备验证官方证书，不解密内容；启动时出现 TLS 握手失败并重试，之后账户请求成功，设备状态变为 Muse Connected / Link Online。串口发送无个人信息的测试消息，收到真实 Muse 的预期回复“设备连接成功”，工具正常结束。这只验证文字输入的账户/会话往返，不替代麦克风输入、中文 TTS 或完整语音验收。
 
 更新应用前已备份配对后的 NVS，仅写应用分区，配对与 Wi-Fi 保留。中继仍依赖 Mac 常开及可用网络路径，当前探针仍禁用舵机和自动 OTA。官方 PR #5 审查指出第二账户客户端也需路由，以及关闭构建参数时必须清理旧中继配置；两项已修复，新增配置切换回归，33 项项目测试通过。
+
+## Muse StopWatch design port
+
+Ported the reference adapter's practical controls: a two-second physical PTT
+guard, no upload of short/cancelled notes, persistent browser setup PIN, blank
+secret fields that preserve saved credentials, per-SSID SOCKS5/Clash routing,
+and an idle final-message notification inbox.
+
+Hardware evidence: a 0.5 s press produced no `voice note` request. The setup AP
+started as `Muse-Setup-AF9011`; Mac temporarily joined it, loaded the page and
+session successfully, and submitted Muse, Doubao and proxy settings with HTTP
+202. The page then closed. The saved Doubao configuration made device-side
+`sw.preview` return `result=ok`.
+
+Network evidence: the device completed SOCKS5 handshakes to the saved LAN
+proxy. The current Clash node then closed the TLS connection before the official
+certificate was validated; direct Mac probes through both HTTP and SOCKS have
+the same failure. This is tracked as an external proxy-node issue, not counted
+as a successful Muse voice round trip.
+
+Latest local project suite: 40 tests passed. The new idle notification queue is
+bounded to four messages, deduplicates 32 recent IDs, preserves complete UTF-8,
+and only accepts terminal assistant/text events. Real scheduled-task delivery
+still needs a working Muse connection and an actual account-side event.
+
+## Final voice and notification evidence
+
+The voice-note request now asks Muse for text output. A synthetic Chinese utterance
+played at the microphone produced a 6.60 s note, a server acknowledgment, a
+21-character assistant reply, and 1.80 s of PCM playback. The complete turn took
+9.83 s. This establishes microphone input, Muse reply and device speech as one
+working chain on the attached hardware.
+
+The fixed device TTS self-test played 3.97 s of PCM. An injected proactive
+notification was accepted by the bounded inbox, woke the speaker path, and
+played 3.01 s of TTS. No panic or reboot occurred. These tests do not prove that
+Muse delivers arbitrary phone messages or scheduled-task results; that requires
+real account events and remains to be observed.

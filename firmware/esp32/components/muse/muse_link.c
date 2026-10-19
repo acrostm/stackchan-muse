@@ -129,6 +129,16 @@ void muse_link_req_cancel(int64_t id)
     }
 }
 
+const char *muse_link_sdk_token(void)
+{
+    return s_ops && s_ops->sdk_token ? s_ops->sdk_token() : NULL;
+}
+
+bool muse_link_sdk_token_set(const char *token)
+{
+    return s_ops && s_ops->sdk_token_set && s_ops->sdk_token_set(token);
+}
+
 void muse_link_ble_apply(void)
 {
     if (s_ops && s_ops->ble_apply) {

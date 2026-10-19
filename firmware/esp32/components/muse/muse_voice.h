@@ -43,6 +43,8 @@ void muse_voice_request_loopback(void);
 
 /* Bench test: decodes and plays a built-in MP3 reply. */
 void muse_voice_request_mp3test(void);
+/* Bench test: synthesize and speak a fixed phrase through the local TTS. */
+void muse_voice_request_tts_test(void);
 
 /* Asleep with nothing to play: codecs off, Wi-Fi dozing. */
 bool muse_voice_resting(void);

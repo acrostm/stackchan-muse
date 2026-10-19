@@ -30,6 +30,7 @@
 #include "muse_state.h"
 #include "muse_ui.h"
 #include "muse_voice.h"
+#include "sw_runtime.h"
 #include "muse_wifi.h"
 
 static const char *TAG = "muse";
@@ -68,6 +69,7 @@ void muse_app_run(const muse_board_t *board)
     ESP_ERROR_CHECK(muse_settings_init());
     muse_settings_set_listener(on_setting);
     muse_state_init();
+    ESP_ERROR_CHECK(sw_runtime_start());
     muse_battery_init();
     muse_state_set_caption("WAKING UP...");
     ESP_ERROR_CHECK(muse_ui_start());

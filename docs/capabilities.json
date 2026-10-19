@@ -8,11 +8,11 @@
     "restore_write_test": "passed: full 16 MiB write verified; factory stack-chan 1.5.1 boot without panic",
     "stackchan_baseline_build": "passed: app 0x221000, app slot 0x400000",
     "upstream_host_tests": "passed: cloud CI 143 run, no skips; local host lacks PSA development library",
-    "project_host_tests": "33 passed locally",
+    "project_host_tests": "40 passed locally",
     "doubao_real_synthesis": "passed: MP3 24 kHz mono 64 kbps",
-    "device_audio_playback": "passed: built-in MP3 3.67 s; owner confirmed audible normal sound; Doubao end-to-end playback pending",
+    "device_audio_playback": "passed: built-in MP3 and direct Doubao PCM playback confirmed on hardware",
     "muse_pairing": "passed: owner paired in phone; device reports paired and Wi-Fi connected",
-    "muse_voice_input_and_reply": "partial: device typed turn reached real Muse and returned expected test phrase; microphone voice turn pending",
+    "muse_voice_input_and_reply": "passed: hardware microphone note -> Muse ack -> 21-character text -> 1.80 s of device PCM playback; 9.83 s turn",
     "shared_personal_context": "unknown",
     "shared_tools_and_approval": "unknown",
     "shared_history": "unknown",
@@ -23,9 +23,14 @@
     "twenty_turn_acceptance": "not_run",
     "two_hour_stability": "not_run",
     "cores3_account_probe_build": "passed: token-enabled, text replies, OTA disabled, no head driver; flashed and booted",
-    "proactive_message_delivery": "unknown: long-lived subscription exists, server event coverage not yet observed",
-    "proactive_message_playback": "not_implemented",
+    "proactive_message_delivery": "implemented: idle terminal assistant messages are bounded and deduplicated; every server event class not yet observed",
+    "proactive_message_playback": "passed with injected notification: queued, woke, chirped, synthesized and played 3.01 s PCM; real server event still pending",
     "tts_utf8_encoding": "passed: Chinese/emoji boundaries and JSON escaping; CoreS3 and StackChan builds passed",
-    "muse_network_relay": "passed: fixed-destination LAN relay, official certificate validation, device Muse Connected / Link Online; transient TLS failures observed"
+    "muse_network_relay": "passed: fixed-destination LAN relay, official certificate validation, device Muse Connected / Link Online; transient TLS failures observed",
+    "ptt_short_guard": "passed: 0.5 s hardware press never created a voice note; exact two-second boundary covered by tests",
+    "setup_portal": "passed: page/session HTTP 200, configuration HTTP 202, persistent PIN and manual close verified",
+    "socks5_proxy": "passed on device: per-SSID SOCKS5 tunnel, official TLS certificate validation and eventual Muse Connected; current upstream node remains intermittent",
+    "doubao_device_synthesis": "passed: device sw.preview returned result=ok with saved credentials",
+    "doubao_device_playback": "passed: direct Doubao device test played 3.97 s PCM; real Muse reply played 1.80 s PCM"
   }
 }

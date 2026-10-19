@@ -31,8 +31,10 @@
 #include "ble_server.h"
 #include "config_store.h"
 #include "identity.h"
+#include "link_pairing.h"
 #include "noise_control.h"
 #include "stack_monitor.h"
+#include "vm_api.h"
 #include "wifi_known.h"
 #include "wifi_mgr.h"
 
@@ -275,6 +277,16 @@ static int op_wifi_saved(muse_wifi_saved_t *out, int max) {
     return n;
 }
 
+static const char *op_sdk_token(void) {
+    return identity_sdk_token();
+}
+
+static bool op_sdk_token_set(const char *token) {
+    if (!identity_set_sdk_token(token)) return false;
+    vm_api_set_sdk_token(identity_sdk_token());
+    return true;
+}
+
 static void op_wifi_forget(const char *ssid) {
     if (!ssid || !ssid[0]) {
         op_wifi_set("", "");
@@ -401,6 +413,8 @@ static const muse_link_ops_t s_ops = {
     .wifi_nap = op_wifi_nap,
     .wifi_saved = op_wifi_saved,
     .wifi_forget = op_wifi_forget,
+    .sdk_token = op_sdk_token,
+    .sdk_token_set = op_sdk_token_set,
 };
 
 // ---- Keeper: joins a saved network and applies BLE, on an internal stack ----
@@ -637,6 +651,38 @@ void muse_glue_storage_ready(void) {
     muse_ble_set_name(identity_ble_name());
     xEventGroupSetBits(s_ready, BIT_STORAGE);
 }
+
+/* A setup GATT client that connects but never starts the encrypted pairing
+ * handshake must not hide the single client slot indefinitely. */
+void sw_pairing_tick(bool restart)
+{
+    static struct {
+        int64_t since;
+        bool tracking;
+    } idle;
+    bool paired = config_setup_complete();
+    bool connected = ble_server_has_connection();
+    bool handshake = link_pairing_session_generation() != 0;
+    bool expired = false;
+    int64_t now = esp_timer_get_time();
+    if (!connected || handshake || paired) {
+        idle.tracking = false;
+    } else if (!idle.tracking || now < idle.since) {
+        idle.since = now;
+        idle.tracking = true;
+    } else if (now - idle.since >= 30LL * 1000000) {
+        idle.tracking = false;
+        expired = true;
+    }
+    if (!paired && (restart || expired)) {
+        ESP_LOGI(TAG, "releasing idle setup connection: %s",
+                 restart ? "user request" : "no handshake for 30s");
+        ble_server_disconnect_client();
+        ble_server_begin_advertising();
+    }
+}
+
+bool sw_pairing_connected(void) { return ble_server_has_connection(); }
 
 void muse_glue_link_ready(void) {
     xEventGroupSetBits(s_ready, BIT_LINK);

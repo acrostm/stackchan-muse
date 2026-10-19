@@ -24,6 +24,7 @@
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
 #if CONFIG_PM_ENABLE
@@ -38,11 +39,13 @@
 #include "muse_link.h"
 #include "muse_mem.h"
 #include "muse_menu.h"
+#include "muse_ptt_guard.h"
 #include "muse_settings.h"
 #include "muse_state.h"
 #include "muse_ui.h"
 #include "muse_voice.h"
 #include "muse_wifi.h"
+#include "sw_runtime.h"
 #if CONFIG_MUSE_WATCHER_CAMERA
 #include "boards/watcher_camera.h"
 #endif
@@ -76,6 +79,9 @@ static volatile bool s_nap_now;   /* ">nap": asleep, as if on battery, nap witho
 
 static void post(muse_ptt_t type, bool wake)
 {
+    int64_t now = esp_timer_get_time();
+    if (type == MUSE_PTT_DOWN) muse_ptt_press(now);
+    else muse_ptt_release(now);
     muse_input_event_t ev = { .type = type, .wake = wake };
     ESP_LOGI(TAG, "PTT %s%s", type == MUSE_PTT_DOWN ? "down" : "up", wake ? " (waking)" : "");
     xQueueSend(s_queue, &ev, 0);
@@ -525,6 +531,12 @@ static void set_face(const char *name)
  */
 static bool console_command(char *line, bool whole)
 {
+    if (whole && sw_console_command(line)) return true;
+    if (whole && !strcmp(line, "sw.say")) {
+        set_asleep(false, "serial TTS test");
+        muse_voice_request_tts_test();
+        return true;
+    }
     if (!strcmp(line, "status")) {
         size_t cap = 1024;   /* long SSID, host and VM names escaped: past 512 */
         char *json = heap_caps_malloc(cap, MUSE_BIG_CAPS);
