@@ -68,7 +68,7 @@ TTS bridge: `python3 -m companion.tts_server` binds loopback by default. See [br
 
 ## Quality and delivery gates
 
-PRs and main pushes run repository/secret checks, project tests, upstream host tests, the UI simulator, and token-free StackChan/CoreS3/Waveshare C6 builds with partition size checks. CI never flashes hardware, calls paid providers, pairs accounts or receives personal credentials. Build bundles contain checksums and source provenance.
+PRs and main pushes run repository/secret checks, project tests, upstream host tests, the UI simulator, and token-free StackChan, StackChan-camera, CoreS3 and Waveshare C6 builds with partition size checks. CI never flashes hardware, calls paid providers, pairs accounts or receives personal credentials. Build bundles contain checksums and source provenance.
 
 Release automation requires a matching source-tree hardware report, all CI jobs, explicit human confirmation and the `firmware-release` environment. It creates a **draft** release only. This is a process gate, not automatic proof of hardware correctness. See [CI and release policy](docs/ci-release.md).
 

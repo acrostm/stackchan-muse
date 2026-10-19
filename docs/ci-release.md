@@ -2,7 +2,7 @@
 
 ## Required checks
 
-The aggregate `Quality gate` checks repository policy, project tests, upstream tests, the UI simulator and token-free StackChan, CoreS3 and Waveshare C6 builds. The C6 build covers the supported no-PSRAM startup path. Firmware builds include IDF's partition-size check. Test failures, unexpected upstream skips, failed jobs and missing artifacts fail the aggregate gate.
+The aggregate `Quality gate` checks repository policy, project tests, upstream tests, the UI simulator and token-free StackChan, StackChan-camera, CoreS3 and Waveshare C6 builds. The C6 build covers the supported no-PSRAM startup path; the camera matrix entry compiles the GC0308 still-capture path. Firmware builds include IDF's partition-size check. Test failures, unexpected upstream skips, failed jobs and missing artifacts fail the aggregate gate.
 
 Normal CI has read-only repository access, no user credentials, bounded job timeouts and cancellation for superseded runs. It never pairs, flashes, calls paid providers or modifies hardware. Build outputs are allowlisted into bundles; sdkconfig, ELF files, logs and private keys are not packaged. Only the inherited public development signing fixture remains in Git.
 
