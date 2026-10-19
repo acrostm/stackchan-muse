@@ -11,6 +11,7 @@ import tempfile
 
 
 def package(build, output, board):
+    root = Path(__file__).resolve().parents[1]
     sdkconfig = (build / 'sdkconfig').read_text()
     token = re.search(r'^CONFIG_GADGET_SDK_TOKEN=(.*)$', sdkconfig, re.M)
     if not token or token.group(1).strip() != '""':
@@ -22,7 +23,11 @@ def package(build, output, board):
     args = json.loads((build / 'flasher_args.json').read_text())
     manifest = {'board': board, 'account_token_included': False,
                 'hardware_verified': False, 'flash_files': {},
-                'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip(),
+                # Actions containers may run as a different owner than checkout.
+                # Trust only this source tree, for this command, never all paths.
+                'commit': subprocess.check_output([
+                    'git', '-c', f'safe.directory={root}', '-C', str(root),
+                    'rev-parse', 'HEAD']).decode().strip(),
                 'flash_settings': args['flash_settings']}
     output.mkdir(parents=True, exist_ok=True)
     target = output / f'musestack-{board}-no-account-token.tar.gz'
@@ -42,7 +47,6 @@ def package(build, output, board):
             'Account-free development build, not a paired or hardware-approved image.\n'
             'Back up and identify hardware first. Never burn eFuses.\n'
             'Muse pairing needs your own locally configured SDK token.\n')
-        root = Path(__file__).resolve().parents[1]
         for name in ('LICENSE', 'NOTICE'):
             (staging / name).write_bytes((root / name).read_bytes())
         (staging / 'minimp3-LICENSE.txt').write_bytes(
