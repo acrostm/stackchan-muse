@@ -1501,12 +1501,23 @@ static void on_event(cJSON *line)
     }
     const char *event = cJSON_GetStringValue(cJSON_GetObjectItem(line, "event")) ?: "";
     cJSON *payload = cJSON_GetObjectItem(line, "payload");
+    const bool background_notice = strstr(event, "notification") ||
+                                   strstr(event, "task.completed") ||
+                                   strstr(event, "task.result");
+    if (background_notice) {
+        if (ignored_event(payload, line)) return;
+        cJSON *ready = cJSON_GetObjectItem(payload, "display_text_ready");
+        const char *text = notification_text(payload);
+        if (!cJSON_IsFalse(ready) && text &&
+            muse_notice_publish(msg_id(payload, line), text)) {
+            ESP_LOGI(TAG, "notification queued (%u chars)", (unsigned)strlen(text));
+        }
+        return;
+    }
     if (s_turn.phase != P_WAIT_REPLY) {
         if (ignored_event(payload, line)) return;
         bool final = !strcmp(event, "delta.message_done") ||
-                     !strcmp(event, "message.assistant") ||
-                     strstr(event, "notification") || strstr(event, "task.completed") ||
-                     strstr(event, "task.result");
+                     !strcmp(event, "message.assistant");
         cJSON *ready = cJSON_GetObjectItem(payload, "display_text_ready");
         const char *text = notification_text(payload);
         if (final && !cJSON_IsFalse(ready) && text) {

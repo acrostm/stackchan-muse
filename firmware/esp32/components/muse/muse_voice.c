@@ -852,6 +852,12 @@ static bool speak_tts_text(const char *text, bool notification)
              notification ? "notification" : "speaker-test",
              (double)played / MUSE_AUDIO_RATE);
     if (interrupted) return true;
+    if (!heard && notification) {
+        muse_state_set_caption("%s", caption);
+        muse_state_set_reply_pending(true);
+        go_idle(caption);
+        return false;
+    }
     if (notification && heard) muse_state_set_reply_pending(true);
     go_idle(heard ? "" : "TTS FAILED OR BUSY");
     return false;
