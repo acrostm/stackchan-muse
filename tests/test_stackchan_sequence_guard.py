@@ -33,6 +33,9 @@ class StackChanSequenceGuardTests(unittest.TestCase):
             'uint32_t stackchan_head_stop_and_generation(void)')
         self.assertIn('stop_locked()', stop)
         self.assertIn('++s_generation', stop)
+        stop_motion = function_body(head, 'static void stop_locked(void)')
+        self.assertNotIn('servo_write_raw', stop_motion)
+        self.assertIn('servo_torque(', stop_motion)
 
     def test_expression_and_pet_steps_use_the_sequence_token(self):
         expression = (BOARDS / 'stackchan_expression.c').read_text()

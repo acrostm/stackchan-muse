@@ -503,12 +503,6 @@ static void stop_locked(void)
     stackchan_motion_cancel(&s_motion);
     const int yaw = (int)s_motion.yaw;
     const int pitch = (int)s_motion.pitch;
-    servo_write_raw(SERVO_YAW_ID,
-                    angle_to_raw(yaw, s_yaw_zero, -STACKCHAN_YAW_LIMIT_TENTHS,
-                                 STACKCHAN_YAW_LIMIT_TENTHS));
-    servo_write_raw(SERVO_PITCH_ID,
-                    angle_to_raw(pitch, s_pitch_zero, 0,
-                                 STACKCHAN_PITCH_LIMIT_TENTHS));
     servo_torque(SERVO_YAW_ID, false);
     servo_torque(SERVO_PITCH_ID, false);
     s_last_yaw = yaw;
