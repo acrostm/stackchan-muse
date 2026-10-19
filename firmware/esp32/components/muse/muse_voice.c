@@ -17,6 +17,7 @@
 #include "muse_voice.h"
 
 #include <math.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,6 +47,7 @@
 #endif
 
 static const char *TAG = "muse_voice";
+static atomic_bool s_stop_requested;
 
 #define MAX_SECS 15
 #define TAIL_FRAMES (MUSE_AUDIO_RATE * 12 / 100)   /* capture lag + poll interval, stops before the release click */
@@ -183,6 +185,11 @@ static bool got_event(muse_ptt_t type)
     return hit;
 }
 
+static bool take_stop_request(void)
+{
+    return atomic_exchange_explicit(&s_stop_requested, false, memory_order_acq_rel);
+}
+
 /* Consume queued events and return the first press that must start another
  * recording turn. The turn id keeps its release/cancel state independent from
  * a later physical press. */
@@ -318,6 +325,11 @@ static bool record(bool barge_in, size_t *held, bool *reached_limit,
     bool released = false;
     size_t stop_at = MAX_FRAMES;
     while (n + MUSE_AUDIO_CHUNK <= stop_at) {
+        if (take_stop_request()) {
+            ok = false;
+            strlcpy(why, "STOPPED", cap);
+            break;
+        }
         if (muse_audio_read(s_chunk, MUSE_AUDIO_CHUNK) != ESP_OK) {
             break;
         }
@@ -398,6 +410,12 @@ static bool hatch_reply(bool *delivered, uint32_t *press_turn)
     int64_t t0 = esp_timer_get_time();
     *delivered = false;
     for (;;) {
+        if (take_stop_request()) {
+            muse_hatch_turn_cancel();
+            muse_state_set_level(0);
+            go_idle("");
+            return false;
+        }
         muse_hatch_ev_t ev;
         while ((ev = muse_hatch_turn_event(text, sizeof(text))) != MUSE_HATCH_EV_NONE) {
             switch (ev) {
@@ -611,6 +629,7 @@ typedef enum {
     FED,
     FEED_FAILED,    /* the turn failed, or Hatch stopped taking audio */
     FEED_PRESSED,   /* a press is queued: it goes first */
+    FEED_STOPPED,   /* the user cancelled from the face */
 } feed_t;
 
 /*
@@ -622,6 +641,7 @@ static feed_t feed_rest(const int16_t *pcm, size_t frames, size_t *sent, bool yi
     char text[96];
     int64_t moved = esp_timer_get_time();
     for (;;) {
+        if (take_stop_request()) return FEED_STOPPED;
         muse_hatch_ev_t ev;
         while ((ev = muse_hatch_turn_event(text, sizeof(text))) != MUSE_HATCH_EV_NONE) {
             if (ev == MUSE_HATCH_EV_ERROR) {
@@ -706,6 +726,10 @@ static bool send_held(bool quiet, uint32_t *press_turn)
         }
         return false;
     }
+    if (fed == FEED_STOPPED) {
+        go_idle("");
+        return false;
+    }
     const char *caption;
     if (delivered || interrupted) {
         drop_oldest();
@@ -776,7 +800,14 @@ static bool finish_note(uint32_t *press_turn)
             /* Hatch is behind (still connecting, say): the rest from the kept note. */
             muse_state_set_mode(MUSE_MODE_THINKING);
             muse_state_set_caption("SENDING VOICE NOTE");
-            fed = feed_rest(s_rec, s_rec_n, &s_sent, false) == FED;
+            feed_t result = feed_rest(s_rec, s_rec_n, &s_sent, false);
+            if (result == FEED_STOPPED) {
+                muse_hatch_turn_cancel();
+                drop_rec();
+                go_idle("");
+                return false;
+            }
+            fed = result == FED;
             if (!fed) {
                 muse_hatch_turn_cancel();
             }
@@ -873,6 +904,13 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
     size_t played = 0;
     int64_t deadline = esp_timer_get_time() + 45LL * 1000000;
     while (esp_timer_get_time() < deadline) {
+        if (take_stop_request()) {
+            sw_tts_cancel();
+            muse_state_set_level(0);
+            pre_reset();
+            go_idle("");
+            return false;
+        }
         if (take_down(press_turn, NULL)) {
             sw_tts_cancel();
             interrupted = true;
@@ -1076,6 +1114,15 @@ float muse_voice_monitor_db(void)
 void muse_voice_request_chirp(void)
 {
     s_chirp = true;
+    muse_state_nudge();
+}
+
+void muse_voice_request_stop(void)
+{
+    atomic_store_explicit(&s_stop_requested, true, memory_order_release);
+    muse_ptt_cancel_current();
+    muse_hatch_turn_cancel();
+    sw_tts_cancel();
     muse_state_nudge();
 }
 

@@ -45,6 +45,16 @@ void stackchan_motion_init(stackchan_motion_t *motion, int yaw_tenths, int pitch
     motion->target_pitch = motion->pitch;
 }
 
+void stackchan_motion_rebase(stackchan_motion_t *motion, int yaw_tenths,
+                             int pitch_tenths)
+{
+    if (!motion) return;
+    motion->yaw = (float)clampi(yaw_tenths, -STACKCHAN_YAW_LIMIT_TENTHS,
+                                STACKCHAN_YAW_LIMIT_TENTHS);
+    motion->pitch = (float)clampi(pitch_tenths, 0, STACKCHAN_PITCH_LIMIT_TENTHS);
+    motion->yaw_velocity = motion->pitch_velocity = 0;
+}
+
 static bool same_target(const stackchan_motion_t *motion, float yaw, float pitch)
 {
     return fabsf(motion->target_yaw - yaw) < 0.1f &&

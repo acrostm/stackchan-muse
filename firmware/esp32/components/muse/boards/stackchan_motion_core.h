@@ -30,6 +30,11 @@ typedef struct {
 
 void stackchan_motion_init(stackchan_motion_t *motion, int yaw_tenths, int pitch_tenths);
 
+/* Synchronize an active trajectory with the measured physical position before
+ * torque is re-enabled. The target, priority and expiry remain unchanged. */
+void stackchan_motion_rebase(stackchan_motion_t *motion, int yaw_tenths,
+                             int pitch_tenths);
+
 /* The newest request wins at equal priority. A lower-priority request is
  * ignored. Speed is the StackChan BSP's 0..1000 scale. expires_us == 0 keeps
  * the target until replaced; otherwise a non-positive duration cancels it. */

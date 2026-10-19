@@ -37,8 +37,7 @@ static const char *TAG = "muse";
 
 static void stop_active_output(void)
 {
-    muse_hatch_turn_cancel();
-    sw_tts_cancel();
+    muse_voice_request_stop();
 }
 
 /* Applies saved settings to hardware; runs in whichever task changed them. */

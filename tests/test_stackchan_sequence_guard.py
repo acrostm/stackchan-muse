@@ -54,6 +54,16 @@ class StackChanSequenceGuardTests(unittest.TestCase):
         self.assertIn('#include "boards/stackchan_head.h"', voice)
         self.assertIn('stackchan_head_stop();', voice)
 
+    def test_face_stop_reaches_the_voice_task(self):
+        app = (ROOT / 'firmware/esp32/components/muse/muse_app.c').read_text()
+        self.assertIn('muse_voice_request_stop();', app)
+        voice = (
+            ROOT / 'firmware/esp32/components/muse/muse_voice.c'
+        ).read_text()
+        self.assertIn('atomic_store_explicit(&s_stop_requested', voice)
+        self.assertIn('muse_hatch_turn_cancel();', voice)
+        self.assertIn('sw_tts_cancel();', voice)
+
 
 if __name__ == '__main__':
     unittest.main()

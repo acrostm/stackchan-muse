@@ -82,6 +82,7 @@ static int s_pitch_zero = SERVO_PITCH_DEFAULT_ZERO;
 static int s_last_yaw = -100000;
 static int s_last_pitch = -100000;
 static int64_t s_rest_since_us;
+static int64_t s_feedback_warn_us;
 static bool s_present;
 static bool s_uart_ready;
 static bool s_calibrated;
@@ -306,17 +307,49 @@ static void motion_task(void *arg)
         if (dt_s > 0.05f) dt_s = 0.05f;
 
         xSemaphoreTake(s_lock, portMAX_DELAY);
-        int yaw_tenths = 0, pitch_tenths = 0;
-        const bool moving = stackchan_motion_tick(&s_motion, now_us, dt_s,
-                                                  &yaw_tenths, &pitch_tenths);
-        if (moving && !s_torque_on) {
-            const esp_err_t yaw_err = servo_torque(SERVO_YAW_ID, true);
-            const esp_err_t pitch_err = servo_torque(SERVO_PITCH_ID, true);
-            if (yaw_err == ESP_OK && pitch_err == ESP_OK) {
-                s_torque_on = true;
+        int yaw_tenths = (int)s_motion.yaw, pitch_tenths = (int)s_motion.pitch;
+        bool moving = false;
+        if (s_motion.active && !s_torque_on) {
+            int yaw_raw = -1, pitch_raw = -1;
+            if (!read_position(SERVO_YAW_ID, &yaw_raw) ||
+                !read_position(SERVO_PITCH_ID, &pitch_raw)) {
+                if (!s_feedback_warn_us ||
+                    now_us - s_feedback_warn_us >= 2LL * 1000000) {
+                    ESP_LOGW(TAG, "servo feedback unavailable; motion cancelled");
+                    s_feedback_warn_us = now_us;
+                }
+                stackchan_motion_cancel(&s_motion);
             } else {
-                ESP_LOGW(TAG, "could not enable servo torque");
+                int yaw = raw_to_angle(yaw_raw, s_yaw_zero);
+                int pitch = raw_to_angle(pitch_raw, s_pitch_zero);
+                yaw = yaw < -STACKCHAN_YAW_LIMIT_TENTHS ? -STACKCHAN_YAW_LIMIT_TENTHS
+                      : yaw > STACKCHAN_YAW_LIMIT_TENTHS ? STACKCHAN_YAW_LIMIT_TENTHS : yaw;
+                pitch = pitch < 0 ? 0 : pitch > STACKCHAN_PITCH_LIMIT_TENTHS
+                                          ? STACKCHAN_PITCH_LIMIT_TENTHS : pitch;
+                stackchan_motion_rebase(&s_motion, yaw, pitch);
+                s_last_yaw = yaw;
+                s_last_pitch = pitch;
+                const esp_err_t preload_yaw = servo_write_raw(SERVO_YAW_ID, yaw_raw);
+                const esp_err_t preload_pitch = servo_write_raw(SERVO_PITCH_ID, pitch_raw);
+                if (preload_yaw == ESP_OK && preload_pitch == ESP_OK) {
+                    const esp_err_t torque_yaw = servo_torque(SERVO_YAW_ID, true);
+                    const esp_err_t torque_pitch = servo_torque(SERVO_PITCH_ID, true);
+                    if (torque_yaw == ESP_OK && torque_pitch == ESP_OK) {
+                        s_torque_on = true;
+                        moving = stackchan_motion_tick(&s_motion, now_us, dt_s,
+                                                       &yaw_tenths, &pitch_tenths);
+                    } else {
+                        servo_torque(SERVO_YAW_ID, false);
+                        servo_torque(SERVO_PITCH_ID, false);
+                        ESP_LOGW(TAG, "could not enable servo torque");
+                    }
+                } else {
+                    ESP_LOGW(TAG, "could not preload measured servo position");
+                }
             }
+        } else {
+            moving = stackchan_motion_tick(&s_motion, now_us, dt_s,
+                                           &yaw_tenths, &pitch_tenths);
         }
         if (yaw_tenths != s_last_yaw || pitch_tenths != s_last_pitch) {
             const esp_err_t yaw_err = servo_write_raw(SERVO_YAW_ID,

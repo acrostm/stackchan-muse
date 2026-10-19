@@ -45,6 +45,14 @@ int main(void) {
     assert(stackchan_motion_tick(&m, 4020000, 0.02f, &yaw, &pitch));
     assert(yaw > slow_yaw);
 
+    stackchan_motion_init(&m, 0, 0);
+    assert(stackchan_motion_set_target(&m, 500, 300, 100,
+                                       STACKCHAN_MOVE_EXPRESSION, 4000000, 0));
+    stackchan_motion_rebase(&m, 120, -80);
+    assert(m.yaw == 120 && m.pitch == 0 && m.yaw_velocity == 0);
+    assert(m.target_yaw == 500 && m.target_pitch == 300 && m.active);
+    assert(stackchan_motion_tick(&m, 4020000, 0.02f, &yaw, &pitch));
+
     stackchan_motion_cancel(&m);
     assert(m.target_yaw == m.yaw && m.target_pitch == m.pitch);
     assert(!m.active);
@@ -64,6 +72,18 @@ int main(void) {
                 "-lm", "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)
+
+    def test_torque_reacquire_uses_live_feedback_before_enable(self):
+        source = (
+            ROOT / 'firmware/esp32/components/muse/boards/stackchan_head.c'
+        ).read_text()
+        task = source[source.index('static void motion_task(void *arg)') :]
+        task = task[:task.index('\nesp_err_t stackchan_head_init')]
+        feedback = task.index('read_position(SERVO_YAW_ID')
+        preload = task.index('servo_write_raw(SERVO_YAW_ID')
+        enable = task.index('servo_torque(SERVO_YAW_ID, true)')
+        self.assertLess(feedback, preload)
+        self.assertLess(preload, enable)
 
 
 if __name__ == "__main__":
