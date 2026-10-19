@@ -45,6 +45,12 @@ class StackChanSequenceGuardTests(unittest.TestCase):
         self.assertIn('stackchan_head_move_for_generation(', pet)
         self.assertNotIn('stackchan_head_move(', pet)
 
+        voice = (
+            ROOT / 'firmware/esp32/components/muse/muse_voice.c'
+        ).read_text()
+        self.assertIn('#include "boards/stackchan_head.h"', voice)
+        self.assertIn('stackchan_head_stop();', voice)
+
 
 if __name__ == '__main__':
     unittest.main()

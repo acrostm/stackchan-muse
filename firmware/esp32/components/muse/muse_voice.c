@@ -42,6 +42,7 @@
 #include "sw_runtime.h"
 #if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
 #include "boards/stackchan_expression.h"
+#include "boards/stackchan_head.h"
 #endif
 
 static const char *TAG = "muse_voice";
@@ -1001,6 +1002,10 @@ static void voice_task(void *arg)
             go_idle("PTT BUSY");
             continue;
         }
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+        /* A new talk turn cancels any old reply gesture before recording. */
+        stackchan_head_stop();
+#endif
         if (wake && !held_on_waking()) {
             muse_ptt_retire(turn);
             continue;   /* a tap: it only woke Muse */

@@ -85,7 +85,7 @@ static esp_err_t gc0308_init(void)
         return err;
     }
     s_ready = true;
-    ESP_LOGI(TAG, "GC0308 camera ready (VGA YUV422, JPEG on capture)");
+    ESP_LOGI(TAG, "GC0308 camera ready (QVGA YUV422, JPEG on capture)");
     return ESP_OK;
 }
 
