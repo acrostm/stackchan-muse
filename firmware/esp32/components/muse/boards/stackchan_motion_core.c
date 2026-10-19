@@ -70,6 +70,12 @@ bool stackchan_motion_set_target(stackchan_motion_t *motion, int yaw_tenths, int
                                     STACKCHAN_YAW_LIMIT_TENTHS);
     const float pitch = (float)clampi(pitch_tenths, 0, STACKCHAN_PITCH_LIMIT_TENTHS);
     if (motion->active && (int)priority < motion->priority) return false;
+    /* Even a settled target is a new accepted command. The hardware owner may
+     * reactivate it after measuring a head moved while torque was off. */
+    motion->stiffness = spring_stiffness(speed);
+    motion->damping = 2.0f * sqrtf(motion->stiffness);
+    motion->priority = priority;
+    motion->expires_us = expires_us ? now_us + expires_us : 0;
     if (same_target(motion, yaw, pitch) &&
         fabsf(motion->yaw - yaw) < 0.1f && fabsf(motion->pitch - pitch) < 0.1f) {
         motion->active = false;
@@ -78,10 +84,6 @@ bool stackchan_motion_set_target(stackchan_motion_t *motion, int yaw_tenths, int
     }
     motion->target_yaw = yaw;
     motion->target_pitch = pitch;
-    motion->stiffness = spring_stiffness(speed);
-    motion->damping = 2.0f * sqrtf(motion->stiffness);
-    motion->priority = priority;
-    motion->expires_us = expires_us ? now_us + expires_us : 0;
     motion->active = true;
     return true;
 }

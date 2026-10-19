@@ -56,6 +56,19 @@ int main(void) {
     stackchan_motion_cancel(&m);
     assert(m.target_yaw == m.yaw && m.target_pitch == m.pitch);
     assert(!m.active);
+    /* A repeat after torque release must carry the new request metadata;
+     * the hardware task can discover a changed physical position. */
+    stackchan_motion_init(&m, 0, 0);
+    stackchan_motion_cancel(&m);
+    assert(stackchan_motion_set_target(&m, 0, 0, 350,
+                                       STACKCHAN_MOVE_COMMAND, 5000000, 1000000));
+    assert(m.priority == STACKCHAN_MOVE_COMMAND && m.stiffness > 0);
+    assert(m.expires_us == 6000000);
+    m.active = true;
+    stackchan_motion_rebase(&m, 100, 100);
+    assert(stackchan_motion_tick(&m, 5020000, 0.02f, &yaw, &pitch));
+    assert(yaw < 100 && pitch < 100);
+    assert(!stackchan_motion_tick(&m, 6000000, 0.02f, &yaw, &pitch));
     return 0;
 }
 '''
