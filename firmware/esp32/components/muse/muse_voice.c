@@ -795,10 +795,17 @@ static bool can_record(void)
         ESP_LOGE(TAG, "no memory to keep a note");
     }
 #endif
-    if (!ready && !s_rec) {
+#if HOLD_NOTES
+    if (!s_rec) {
+        go_idle(ready ? "NOT ENOUGH MEMORY" : not_ready_reason());
+        return false;
+    }
+#else
+    if (!ready) {
         go_idle(not_ready_reason());
         return false;
     }
+#endif
     return true;
 }
 
