@@ -24,6 +24,7 @@ typedef struct {
     float target_pitch;
     float stiffness;
     float damping;
+    float max_velocity;  /* tenths of a degree per second */
     int priority;
     int64_t expires_us;
     bool active;
