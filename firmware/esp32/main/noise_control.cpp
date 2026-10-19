@@ -27,6 +27,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_tls.h"
+#include "muse_tls_route.h"
 #include "esp_crt_bundle.h"
 #include "esp_random.h"
 #include "esp_heap_caps.h"
@@ -1848,8 +1849,11 @@ static session_result_t run_session(stack_monitor_t *stack) {
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms = 15000;
 
-    int r = esp_tls_conn_new_sync(s_noise_host, static_cast<int>(strlen(s_noise_host)),
-                                  NOISE_PORT, &cfg, tls);
+    bool relayed = muse_tls_route_noise(s_noise_host);
+    const char *connect_host = relayed ? CONFIG_MUSE_TLS_RELAY_HOST : s_noise_host;
+    cfg.common_name = relayed ? s_noise_host : nullptr;
+    int r = esp_tls_conn_new_sync(connect_host, static_cast<int>(strlen(connect_host)),
+                                  relayed ? 18444 : NOISE_PORT, &cfg, tls);
     if (r != 1) {
         ESP_LOGE(TAG, "TLS connect failed: %d", r);
         esp_tls_conn_destroy(tls);

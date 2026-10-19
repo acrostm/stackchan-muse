@@ -303,3 +303,11 @@ menu "ESP32 Device SDK"
             locks read protection. No shared software attestation key is used.
 
 endmenu
+
+config MUSE_TLS_RELAY_HOST
+    string "Optional private IPv4 TLS passthrough relay"
+    default ""
+    help
+        Connect api.muse.ai and hatch.metaaivm.com through the MuseStack
+        fixed-destination LAN relay (ports 18443/18444). Original server
+        certificates and SNI are retained. Empty uses direct connections.

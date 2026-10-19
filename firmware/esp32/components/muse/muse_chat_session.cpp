@@ -58,6 +58,7 @@
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_tls.h"
+#include "muse_tls_route.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
 #include "freertos/queue.h"
@@ -826,7 +827,10 @@ static bool connect_once(char *err, size_t err_cap, int *http_status)
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms = 15000;
     int64_t t0 = now_us();
-    if (esp_tls_conn_new_sync(s_host, strlen(s_host), NOISE_PORT, &cfg, c.tls) != 1) {
+    bool relayed = muse_tls_route_noise(s_host);
+    const char *connect_host = relayed ? CONFIG_MUSE_TLS_RELAY_HOST : s_host;
+    cfg.common_name = relayed ? s_host : nullptr;
+    if (esp_tls_conn_new_sync(connect_host, strlen(connect_host), relayed ? 18444 : NOISE_PORT, &cfg, c.tls) != 1) {
         snprintf(err, err_cap, "Can't reach %s", s_host);
         return false;
     }

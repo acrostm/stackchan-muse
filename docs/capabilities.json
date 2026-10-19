@@ -8,11 +8,11 @@
     "restore_write_test": "passed: full 16 MiB write verified; factory stack-chan 1.5.1 boot without panic",
     "stackchan_baseline_build": "passed: app 0x221000, app slot 0x400000",
     "upstream_host_tests": "passed: cloud CI 143 run, no skips; local host lacks PSA development library",
-    "project_host_tests": "28 passed locally",
+    "project_host_tests": "33 passed locally",
     "doubao_real_synthesis": "passed: MP3 24 kHz mono 64 kbps",
     "device_audio_playback": "passed: built-in MP3 3.67 s; owner confirmed audible normal sound; Doubao end-to-end playback pending",
     "muse_pairing": "passed: owner paired in phone; device reports paired and Wi-Fi connected",
-    "muse_voice_input_and_reply": "blocked: paired Wi-Fi has no overseas route; account API connect timeout; first typed turn failed",
+    "muse_voice_input_and_reply": "partial: device typed turn reached real Muse and returned expected test phrase; microphone voice turn pending",
     "shared_personal_context": "unknown",
     "shared_tools_and_approval": "unknown",
     "shared_history": "unknown",
@@ -25,6 +25,7 @@
     "cores3_account_probe_build": "passed: token-enabled, text replies, OTA disabled, no head driver; flashed and booted",
     "proactive_message_delivery": "unknown: long-lived subscription exists, server event coverage not yet observed",
     "proactive_message_playback": "not_implemented",
-    "tts_utf8_encoding": "passed: Chinese/emoji boundaries and JSON escaping; CoreS3 and StackChan builds passed"
+    "tts_utf8_encoding": "passed: Chinese/emoji boundaries and JSON escaping; CoreS3 and StackChan builds passed",
+    "muse_network_relay": "passed: fixed-destination LAN relay, official certificate validation, device Muse Connected / Link Online; transient TLS failures observed"
   }
 }

@@ -15,6 +15,7 @@
  */
 
 #include "muse_account_api.h"
+#include "muse_tls_route.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,8 +54,10 @@ static esp_err_t on_http(esp_http_client_event_t *evt)
 /* Returns the HTTP status, or 0 if the request never completed. */
 static int fetch(const char *auth, resp_t *r)
 {
+    char relay_url[256];
+    bool relayed = muse_tls_route_api(FETCH_URL, relay_url, sizeof(relay_url));
     esp_http_client_config_t cfg = {
-        .url = FETCH_URL,
+        .url = relayed ? relay_url : FETCH_URL,
         .timeout_ms = 15000,
         .buffer_size = 4096,
         .buffer_size_tx = 4096,
@@ -62,11 +65,13 @@ static int fetch(const char *auth, resp_t *r)
         .user_data = r,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .disable_auto_redirect = true,
+        .common_name = relayed ? "api.muse.ai" : NULL,
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (!c) {
         return 0;
     }
+    if (relayed) esp_http_client_set_header(c, "Host", "api.muse.ai");
     esp_http_client_set_header(c, "Authorization", auth);
     esp_http_client_set_header(c, "X-API-Version", "1.0.0");
     esp_err_t err = esp_http_client_perform(c);
