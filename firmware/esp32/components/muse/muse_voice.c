@@ -164,14 +164,38 @@ static void idle_capture(void)
     s_pre_fill = s_pre_fill < PRE_CHUNKS ? s_pre_fill + 1 : PRE_CHUNKS;
 }
 
-/* Non-blocking: returns true if an event of `type` arrived (others dropped). */
+/* Non-blocking: drain events up to a later press, leaving that press queued so
+ * it can start the next recording turn. */
 static bool got_event(muse_ptt_t type)
 {
     muse_input_event_t ev;
     bool hit = false;
-    while (xQueueReceive(s_queue, &ev, 0) == pdTRUE) {
+    while (xQueuePeek(s_queue, &ev, 0) == pdTRUE) {
+        if (ev.type == MUSE_PTT_DOWN && type != MUSE_PTT_DOWN) break;
+        if (xQueueReceive(s_queue, &ev, 0) != pdTRUE) break;
         muse_state_poke();
         hit |= ev.type == type;
+    }
+    return hit;
+}
+
+/* Consume queued events and return the first press that must start another
+ * recording turn. The turn id keeps its release/cancel state independent from
+ * a later physical press. */
+static bool take_down(uint32_t *turn, bool *wake)
+{
+    muse_input_event_t ev;
+    bool hit = false;
+    if (turn) *turn = 0;
+    while (xQueueReceive(s_queue, &ev, 0) == pdTRUE) {
+        muse_state_poke();
+        if (ev.type == MUSE_PTT_DOWN && !hit) {
+            hit = true;
+            if (turn) *turn = ev.turn ? ev.turn : muse_ptt_press(esp_timer_get_time());
+            if (wake) *wake = ev.wake;
+        } else if (ev.type == MUSE_PTT_DOWN) {
+            muse_ptt_retire(ev.turn);
+        }
     }
     return hit;
 }
@@ -254,9 +278,11 @@ static void take(rec_stats_t *st, const int16_t *pcm)
  * kept note to fall back on (why says what failed). There is no start chirp:
  * anything played now would land on top of the first words.
  */
-static bool record(bool barge_in, size_t *held, bool *reached_limit, char *why, size_t cap)
+static bool record(bool barge_in, size_t *held, bool *reached_limit,
+                   uint32_t *next_turn, char *why, size_t cap)
 {
     *reached_limit = false;
+    if (next_turn) *next_turn = 0;
     muse_state_set_mode(MUSE_MODE_LISTENING);
     muse_state_set_reply_pending(false);   /* talking again reads the last reply */
     muse_state_set_progress(0);
@@ -355,7 +381,7 @@ static void go_idle(const char *caption);
  * Plays Hatch's reply as it arrives, with its text as the caption. Returns
  * true if interrupted by a new press. *delivered: the VM has the note.
  */
-static bool hatch_reply(bool *delivered)
+static bool hatch_reply(bool *delivered, uint32_t *press_turn)
 {
     muse_state_set_mode(MUSE_MODE_THINKING);
     muse_state_set_caption("SENDING VOICE NOTE");   /* until there's a transcript or reply */
@@ -399,7 +425,7 @@ static bool hatch_reply(bool *delivered)
                 break;
             }
         }
-        if (got_event(MUSE_PTT_DOWN)) {
+        if (take_down(press_turn, NULL)) {
             ESP_LOGI(TAG, "reply interrupted");
             muse_hatch_turn_cancel();
             muse_state_set_level(0);
@@ -647,8 +673,9 @@ static bool wait_delivered(void)
  * waits in the app. A press while it goes up comes first, and the note stays
  * saved. Returns true if a press interrupted the reply.
  */
-static bool send_held(bool quiet)
+static bool send_held(bool quiet, uint32_t *press_turn)
 {
+    if (press_turn) *press_turn = 0;
     held_note_t *h = &s_held[0];
     ESP_LOGI(TAG, "sending a saved note%s: %.1fs, from %llds ago, try %d", quiet ? " (asleep)" : "",
              (double)h->frames / MUSE_AUDIO_RATE, (long long)((esp_timer_get_time() - h->at_us) / 1000000),
@@ -664,7 +691,7 @@ static bool send_held(bool quiet)
     if (fed == FED && quiet) {
         delivered = wait_delivered();
     } else if (fed == FED) {
-        interrupted = hatch_reply(&delivered);
+        interrupted = hatch_reply(&delivered, press_turn);
     }
     if (fed != FED || quiet) {
         muse_hatch_turn_cancel();   /* asleep, the reply is left for the app */
@@ -729,7 +756,7 @@ static bool held_due(void)
  * or if it can't go now it's saved to send later. Returns true if a press
  * interrupted the reply.
  */
-static bool finish_note(void)
+static bool finish_note(uint32_t *press_turn)
 {
     bool delivered;
 #if HOLD_NOTES
@@ -751,7 +778,7 @@ static bool finish_note(void)
             }
         }
         if (fed) {
-            interrupted = hatch_reply(&delivered);
+            interrupted = hatch_reply(&delivered, press_turn);
         }
         if (delivered || interrupted) {
             drop_rec();
@@ -763,7 +790,7 @@ static bool finish_note(void)
 #endif
     muse_hatch_turn_end();   /* before the chirp, which takes ~90 ms */
     muse_audio_chirp(0);
-    return hatch_reply(&delivered);
+    return hatch_reply(&delivered, press_turn);
 }
 
 /*
@@ -811,7 +838,7 @@ static bool can_record(void)
 
 /* Returns true when a new talk press interrupted playback; the caller must
  * keep that press and enter the normal recording path without losing it. */
-static bool speak_tts_text(const char *text, bool notification)
+static bool speak_tts_text(const char *text, bool notification, uint32_t *press_turn)
 {
     static int16_t pcm[MUSE_AUDIO_CHUNK];
     char caption[96];
@@ -839,7 +866,7 @@ static bool speak_tts_text(const char *text, bool notification)
     size_t played = 0;
     int64_t deadline = esp_timer_get_time() + 45LL * 1000000;
     while (esp_timer_get_time() < deadline) {
-        if (got_event(MUSE_PTT_DOWN)) {
+        if (take_down(press_turn, NULL)) {
             sw_tts_cancel();
             interrupted = true;
             break;
@@ -872,11 +899,19 @@ static bool speak_tts_text(const char *text, bool notification)
 
 static void voice_task(void *arg)
 {
-    bool pending_down = false;
+    uint32_t pending_turn = 0;
+    bool pending_barge = false;
     muse_audio_selftest();
     for (;;) {
         bool wake = false;
-        if (!pending_down) {
+        bool barge_in = false;
+        uint32_t turn = pending_turn;
+        pending_turn = 0;
+        if (turn) {
+            barge_in = pending_barge;
+            pending_barge = false;
+        }
+        if (!turn) {
             muse_input_event_t ev;
             bool asleep = muse_state_asleep();
             bool battery = muse_state_on_battery();
@@ -888,9 +923,10 @@ static void voice_task(void *arg)
             if (held_due() && !press_waiting()) {
                 set_resting(false);   /* full power while it goes, even asleep */
                 muse_wifi_power(MUSE_WIFI_FULL);
-                pending_down = send_held(asleep);
+                send_held(asleep, &pending_turn);
+                if (pending_turn || press_waiting()) pending_barge = true;
                 pre_reset();
-                if (!pending_down && !asleep && muse_state_mode(NULL) != MUSE_MODE_IDLE) {
+                if (!pending_turn && !asleep && muse_state_mode(NULL) != MUSE_MODE_IDLE) {
                     muse_state_make_happy();
                     go_idle("");
                 }
@@ -931,14 +967,16 @@ static void voice_task(void *arg)
             char notice[MUSE_NOTICE_TEXT_MAX + 1];
             if (muse_notice_take(notice, sizeof(notice))) {
                 muse_state_set_asleep(false);
-                pending_down = speak_tts_text(notice, true);
+                speak_tts_text(notice, true, &pending_turn);
+                if (pending_turn) pending_barge = true;
                 memset(notice, 0, sizeof(notice));
                 continue;
             }
             if (s_tts_test) {
                 s_tts_test = false;
-                pending_down = speak_tts_text(
-                    "你好，我是你的 Muse。中文语音播放测试成功。", false);
+                speak_tts_text("你好，我是你的 Muse。中文语音播放测试成功。",
+                               false, &pending_turn);
+                if (pending_turn) pending_barge = true;
                 continue;
             }
             /* The 20 ms read paces this loop. */
@@ -951,21 +989,28 @@ static void voice_task(void *arg)
                 continue;
             }
             wake = ev.wake;
+            turn = ev.turn ? ev.turn : muse_ptt_press(esp_timer_get_time());
+        }
+        if (!turn) {
+            go_idle("PTT BUSY");
+            continue;
         }
         if (wake && !held_on_waking()) {
+            muse_ptt_retire(turn);
             continue;   /* a tap: it only woke Muse */
         }
         muse_wifi_power(MUSE_WIFI_FULL);
         if (!can_record()) {
-            pending_down = false;
+            muse_ptt_retire(turn);
             continue;
         }
         size_t held;
         bool reached_limit;
         char why[96];
-        bool ok = record(pending_down, &held, &reached_limit, why, sizeof(why));
-        pending_down = false;
-        enum muse_ptt_result gate = muse_ptt_result();
+        bool ok = record(barge_in, &held, &reached_limit, &pending_turn,
+                         why, sizeof(why));
+        enum muse_ptt_result gate = muse_ptt_result(turn);
+        muse_ptt_retire(turn);
         if (!muse_ptt_should_submit(gate, wake, reached_limit)) {
             muse_hatch_turn_cancel();
             drop_rec();
@@ -979,9 +1024,10 @@ static void voice_task(void *arg)
             go_idle(why);   /* Hatch failed it while recording */
             continue;
         }
-        pending_down = finish_note();
+        finish_note(&pending_turn);
+        if (pending_turn) pending_barge = true;
         pre_reset();
-        if (!pending_down && muse_state_mode(NULL) != MUSE_MODE_IDLE) {
+        if (!pending_turn && muse_state_mode(NULL) != MUSE_MODE_IDLE) {
             muse_state_make_happy();
             go_idle("");
         }

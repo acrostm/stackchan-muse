@@ -11,11 +11,17 @@ enum muse_ptt_result {
     MUSE_PTT_SEND,
 };
 
-/* Physical press duration, independent of audio pre-roll and queue latency. */
-void muse_ptt_press(int64_t now_us);
-void muse_ptt_release(int64_t now_us);
-void muse_ptt_cancel(void);
-enum muse_ptt_result muse_ptt_result(void);
+/*
+ * Physical press duration, independent of audio pre-roll and queue latency.
+ * Each press gets a non-zero turn id. Input events carry that id so a quick
+ * second press cannot overwrite the release/cancel state of the recording
+ * that is still being validated by the voice task.
+ */
+uint32_t muse_ptt_press(int64_t now_us);
+void muse_ptt_release_current(int64_t now_us);
+void muse_ptt_cancel_current(void);
+enum muse_ptt_result muse_ptt_result(uint32_t turn);
+void muse_ptt_retire(uint32_t turn);
 
 /* A completed turn includes recordings that stopped at the maximum duration
  * while the physical key is still down. An explicit cancellation always wins. */

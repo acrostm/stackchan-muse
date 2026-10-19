@@ -150,15 +150,19 @@ const char *sw_ble_state(void)
     return ble_gap_adv_active() ? "advertising" : "idle";
 }
 
+static uint32_t s_capture_turn;
 void sw_capture_press(void) {
-    muse_ptt_press(esp_timer_get_time());
+    s_capture_turn = muse_ptt_press(esp_timer_get_time());
 }
 void sw_capture_release(void) {
-    muse_ptt_release(esp_timer_get_time());
+    muse_ptt_release_current(esp_timer_get_time());
 }
 void sw_capture_cancel(void) {
-    muse_ptt_cancel();
+    muse_ptt_cancel_current();
 }
 sw_ptt_result_t sw_capture_result(void) {
-    return (sw_ptt_result_t)muse_ptt_result();
+    const sw_ptt_result_t result = (sw_ptt_result_t)muse_ptt_result(s_capture_turn);
+    muse_ptt_retire(s_capture_turn);
+    s_capture_turn = 0;
+    return result;
 }

@@ -80,9 +80,10 @@ static volatile bool s_nap_now;   /* ">nap": asleep, as if on battery, nap witho
 static void post(muse_ptt_t type, bool wake)
 {
     int64_t now = esp_timer_get_time();
-    if (type == MUSE_PTT_DOWN) muse_ptt_press(now);
-    else muse_ptt_release(now);
-    muse_input_event_t ev = { .type = type, .wake = wake };
+    uint32_t turn = 0;
+    if (type == MUSE_PTT_DOWN) turn = muse_ptt_press(now);
+    else muse_ptt_release_current(now);
+    muse_input_event_t ev = { .type = type, .wake = wake, .turn = turn };
     ESP_LOGI(TAG, "PTT %s%s", type == MUSE_PTT_DOWN ? "down" : "up", wake ? " (waking)" : "");
     xQueueSend(s_queue, &ev, 0);
 }

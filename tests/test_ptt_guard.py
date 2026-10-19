@@ -14,33 +14,46 @@ class PttGuardTests(unittest.TestCase):
             path.write_text(r'''
 #include "muse_ptt_guard.h"
 #include <assert.h>
+#include <stdint.h>
 int main(void) {
-    assert(muse_ptt_result() == MUSE_PTT_WAIT);
+    assert(muse_ptt_result(0) == MUSE_PTT_WAIT);
     for (long duration = 0; duration <= 2000001; duration += 1) {
-        muse_ptt_press(123456);
-        assert(muse_ptt_result() == MUSE_PTT_WAIT);
-        muse_ptt_release(123456 + duration);
-        assert(muse_ptt_result() ==
+        uint32_t turn = muse_ptt_press(123456);
+        assert(turn);
+        assert(muse_ptt_result(turn) == MUSE_PTT_WAIT);
+        muse_ptt_release_current(123456 + duration);
+        assert(muse_ptt_result(turn) ==
                (duration > 2000000 ? MUSE_PTT_SEND : MUSE_PTT_SHORT));
+        muse_ptt_retire(turn);
     }
-    muse_ptt_press(1);
-    muse_ptt_cancel();
-    muse_ptt_release(9000000);
-    assert(muse_ptt_result() == MUSE_PTT_CANCELLED);
-    muse_ptt_press(10000000);
-    muse_ptt_release(14000000);
-    assert(muse_ptt_result() == MUSE_PTT_SEND);
-    muse_ptt_press(14000000);
-    muse_ptt_release(1);
-    assert(muse_ptt_result() == MUSE_PTT_SHORT);
-    muse_ptt_press(15000000);
-    assert(muse_ptt_should_submit(muse_ptt_result(), false, true));
-    muse_ptt_cancel();
-    assert(!muse_ptt_should_submit(muse_ptt_result(), false, true));
+    uint32_t cancelled = muse_ptt_press(1);
+    muse_ptt_cancel_current();
+    muse_ptt_release_current(9000000);
+    uint32_t next = muse_ptt_press(10000000);
+    muse_ptt_release_current(14000000);
+    /* The second press must not erase the first turn's cancellation. */
+    assert(cancelled && next && cancelled != next);
+    assert(muse_ptt_result(cancelled) == MUSE_PTT_CANCELLED);
+    assert(muse_ptt_result(next) == MUSE_PTT_SEND);
+    muse_ptt_retire(cancelled);
+    assert(muse_ptt_result(cancelled) == MUSE_PTT_WAIT);
+    assert(muse_ptt_result(next) == MUSE_PTT_SEND);
+    muse_ptt_retire(next);
+    uint32_t held = muse_ptt_press(15000000);
+    assert(muse_ptt_should_submit(muse_ptt_result(held), false, true));
+    muse_ptt_cancel_current();
+    assert(!muse_ptt_should_submit(muse_ptt_result(held), false, true));
+    muse_ptt_retire(held);
     assert(!muse_ptt_should_submit(MUSE_PTT_CANCELLED, true, false));
     assert(muse_ptt_should_submit(MUSE_PTT_SEND, false, false));
     assert(muse_ptt_should_submit(MUSE_PTT_WAIT, true, false));
     assert(!muse_ptt_should_submit(MUSE_PTT_SHORT, false, false));
+    uint32_t ids[16];
+    for (unsigned i = 0; i < 16; ++i) assert((ids[i] = muse_ptt_press(i)));
+    assert(muse_ptt_press(20) == 0); /* Bounded fail-closed history. */
+    for (unsigned i = 0; i < 16; ++i) muse_ptt_retire(ids[i]);
+    assert(muse_ptt_press(30));
+    muse_ptt_release_current(30000030);
 }
 ''')
             binary = Path(temp) / 'test'
