@@ -133,10 +133,17 @@ certificate was validated; direct Mac probes through both HTTP and SOCKS have
 the same failure. This is tracked as an external proxy-node issue, not counted
 as a successful Muse voice round trip.
 
-Latest local project suite: 41 tests passed. The new idle notification queue is
+Latest local project suite: 42 tests passed. The new idle notification queue is
 bounded to four messages, deduplicates 32 recent IDs, preserves complete UTF-8,
 and only accepts terminal assistant/text events. Real scheduled-task delivery
 still needs a working Muse connection and an actual account-side event.
+
+The final review pass found two race/transport edge cases. Each physical press
+now carries its own bounded turn id, so a cancelled recording remains
+cancelled even if the next press arrives while its tail is still being
+validated. The ListSpeakers response reader now drains cached body bytes before
+trusting ESP-IDF's completion flag, which fixes small responses that arrive
+together with the headers.
 
 ## Final voice and notification evidence
 

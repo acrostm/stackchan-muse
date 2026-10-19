@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "sw_voice.h"
+#include "sw_http_body.h"
 #include "sw_sign.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
@@ -12,6 +13,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +34,23 @@ static unsigned char *result;
 static size_t result_size;
 static int64_t expires;
 static char error[160];
+
+static int read_body(void *context, void *data, size_t capacity)
+{
+    if (capacity > INT_MAX) capacity = INT_MAX;
+    return esp_http_client_read(context, data, (int)capacity);
+}
+
+static bool body_complete(void *context)
+{
+    return esp_http_client_is_complete_data_received(context);
+}
+
+static int64_t body_now_us(void *context)
+{
+    (void)context;
+    return esp_timer_get_time();
+}
 
 static esp_err_t json_reply(httpd_req_t *r, const char *status, const char *body)
 {
@@ -176,12 +195,15 @@ static bool list(const voice_job_t *job, unsigned char *out, size_t *size, char 
             if (n > 0) at += n;
         }
         if (ok) { esp_http_client_fetch_headers(h); status = esp_http_client_get_status_code(h); ok = status == 200; }
-        *size = 0;
-        while (ok && !esp_http_client_is_complete_data_received(h)) {
-            if (*size >= LIST_CAP - 1 || esp_timer_get_time() >= deadline) { ok = false; break; }
-            int n = esp_http_client_read(h, (char *)out + *size, LIST_CAP - 1 - *size);
-            if (n < 0 || (!n && !esp_http_client_is_complete_data_received(h))) { ok = false; break; }
-            *size += n;
+        if (ok) {
+            sw_http_body_t response = {
+                .context = h,
+                .read = read_body,
+                .complete = body_complete,
+                .now_us = body_now_us,
+                .deadline_us = deadline,
+            };
+            ok = sw_http_body_collect(&response, out, LIST_CAP, size);
         }
         esp_http_client_close(h); esp_http_client_cleanup(h);
     }

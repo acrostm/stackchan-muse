@@ -27,6 +27,7 @@ if(CONFIG_MUSE_ENABLED)
         "sw_proxy_core.c"
         "sw_proxy.c"
         "sw_sign.c"
+        "sw_http_body.c"
         "sw_voice.c"
         "sw_runtime.c"
         "sw_tts.c"
