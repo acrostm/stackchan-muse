@@ -141,9 +141,11 @@ still needs a working Muse connection and an actual account-side event.
 The final review pass found two race/transport edge cases. Each physical press
 now carries its own bounded turn id, so a cancelled recording remains
 cancelled even if the next press arrives while its tail is still being
-validated. The ListSpeakers response reader now drains cached body bytes before
-trusting ESP-IDF's completion flag, which fixes small responses that arrive
-together with the headers.
+validated. Its small shared state uses a short non-preemptive FreeRTOS critical
+section, avoiding the priority inversion a spin lock could cause on the
+single-core ESP32-C6. The ListSpeakers response reader now drains cached body
+bytes before trusting ESP-IDF's completion flag, which fixes small responses
+that arrive together with the headers.
 
 ## Final voice and notification evidence
 

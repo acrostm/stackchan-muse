@@ -60,6 +60,7 @@ int main(void) {
             subprocess.run([
                 'cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
                 '-fsanitize=address,undefined',
+                '-I', str(ROOT / 'tests/ptt_guard_stubs'),
                 '-I', str(ROOT / 'firmware/esp32/components/muse'),
                 str(path), str(ROOT / 'firmware/esp32/components/muse/muse_ptt_guard.c'),
                 '-o', str(binary),

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "muse_ptt_guard.h"
 
-#include <stdatomic.h>
+#include <stddef.h>
+
+#include "freertos/FreeRTOS.h"
 
 #define MIN_HOLD_US (2 * 1000000LL)
 #define PTT_TURN_SLOTS 16
@@ -18,16 +20,16 @@ typedef struct {
 static ptt_turn_t s_turns[PTT_TURN_SLOTS];
 static uint32_t s_current;
 static uint32_t s_next_id;
-static atomic_flag s_lock = ATOMIC_FLAG_INIT;
+static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static void lock(void)
 {
-    while (atomic_flag_test_and_set_explicit(&s_lock, memory_order_acquire)) {}
+    taskENTER_CRITICAL(&s_lock);
 }
 
 static void unlock(void)
 {
-    atomic_flag_clear_explicit(&s_lock, memory_order_release);
+    taskEXIT_CRITICAL(&s_lock);
 }
 
 static ptt_turn_t *find(uint32_t id)

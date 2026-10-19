@@ -25,7 +25,18 @@ jobs:
           persist-credentials: false
       - run: python3 tools/check_repository.py
       - run: git show --format= --check HEAD -- . ":!firmware/**" ":!LICENSE"
-      - run: python3 -m unittest discover -s tests -v
+      - name: Run project tests
+        shell: bash
+        run: |
+          set +e
+          python3 -m unittest discover -s tests -v 2>&1 | tee project-tests.log
+          test_result=${PIPESTATUS[0]}
+          if [ "$test_result" -ne 0 ]; then
+            while IFS= read -r line; do
+              echo "::error title=Project test failed::$line"
+            done < <(grep -E '^(FAIL|ERROR):' project-tests.log)
+          fi
+          exit "$test_result"
 
   firmware:
     name: Firmware (${{ matrix.board }})
