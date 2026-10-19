@@ -95,6 +95,14 @@ int main(void) {
     token = stackchan_head_track_begin();
     assert(stackchan_head_track_stop(token) == ESP_OK);
     assert(!s_motion.active && !s_tracking_generation && s_generation != token);
+    uint32_t pet_generation = s_generation;
+    assert(stackchan_head_move_for_generation(0, 18, 300, STACKCHAN_MOVE_PET,
+        0, pet_generation) == ESP_OK);
+    assert(s_motion.active && s_motion.priority == STACKCHAN_MOVE_PET);
+    stackchan_head_cancel_reply();
+    assert(!s_motion.active && s_generation != pet_generation);
+    assert(stackchan_head_move_for_generation(0, 0, 300, STACKCHAN_MOVE_PET,
+        0, pet_generation) == ESP_ERR_INVALID_STATE);
     int64_t fields[6];
     assert(parse_tracking("1,4294967295,2,-600,600,1000", fields));
     assert(fields[1] == UINT32_MAX && fields[3] == -600);

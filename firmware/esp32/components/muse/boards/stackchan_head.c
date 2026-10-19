@@ -593,7 +593,8 @@ void stackchan_head_cancel_reply(void)
     xSemaphoreTake(s_lock, portMAX_DELAY);
     ++s_generation;
     if (!s_generation) ++s_generation;
-    if (s_motion.priority == STACKCHAN_MOVE_EXPRESSION)
+    if (s_motion.priority == STACKCHAN_MOVE_EXPRESSION ||
+        s_motion.priority == STACKCHAN_MOVE_PET)
         cancel_motion_locked();
     /* Tracking is explicitly user-enabled and is not owned by this turn. */
     xSemaphoreGive(s_lock);

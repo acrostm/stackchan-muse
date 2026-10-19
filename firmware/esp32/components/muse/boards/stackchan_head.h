@@ -66,7 +66,7 @@ esp_err_t stackchan_head_center(void);
  * multi-step sequences. */
 void stackchan_head_stop(void);
 
-/* New speech invalidates old reply gestures without ending an independently
+/* New speech cancels old reply/pet sequences without ending an independently
  * enabled tracking lease. Physical/emergency stop still cancels everything. */
 void stackchan_head_cancel_reply(void);
 
