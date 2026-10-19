@@ -35,7 +35,9 @@ class TrackingTests(unittest.TestCase):
         tracker.enable(0)
         tracker.update([Face(.8, .4, .2, .2)], .2, .2)
         last = tracker.yaw
-        self.assertIsNone(tracker.update([], .4, .4))
+        held = tracker.update([], .4, .4)
+        self.assertEqual(held.yaw, last)
+        self.assertFalse(held.returning)
         self.assertEqual(tracker.yaw, last)
         target = tracker.update([], 1.3, 1.3)
         self.assertTrue(target.returning)
@@ -53,6 +55,10 @@ class TrackingTests(unittest.TestCase):
         last = tracker.yaw
         self.assertIsNone(tracker.update([face], 1.2, 1.3))
         self.assertIsNone(tracker.update([face], 1.1, 1.4))
+        self.assertEqual(tracker.yaw, last)
+        # An old but increasing capture timestamp must not renew a lease or
+        # start recentering after the lost-face timeout.
+        self.assertIsNone(tracker.update([face], 1.3, 3))
         self.assertEqual(tracker.yaw, last)
 
     def test_stop_requires_explicit_enable(self):

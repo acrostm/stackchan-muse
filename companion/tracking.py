@@ -113,8 +113,10 @@ class FaceTracker:
         self._last_time = now
         if self._last_frame is not None and captured_at <= self._last_frame:
             return None
+        if now - captured_at > self.config.max_frame_age:
+            return None  # Never renew a device lease from stale imagery.
         self._last_frame = captured_at
-        candidates = list(faces) if now - captured_at <= self.config.max_frame_age else []
+        candidates = list(faces)
         if len(candidates) > 64 or any(not isinstance(face, Face) for face in candidates):
             raise ValueError("人脸候选无效或过多")
         chosen = None
@@ -134,8 +136,12 @@ class FaceTracker:
             target_yaw = self.config.yaw_bias + x * self.config.yaw_span
             target_pitch = clamp(self.config.pitch_bias - y * self.config.pitch_span, 0, 60)
         else:
-            if self._last_seen is None or now - self._last_seen < self.config.lost_seconds:
+            if self._last_seen is None:
                 return None
+            if now - self._last_seen < self.config.lost_seconds:
+                # A fresh frame without a face holds the last bounded target.
+                # This renews the device lease without chasing stale imagery.
+                return HeadTarget(self.yaw, self.pitch, self.config.ttl_ms, False)
             self._center = None
             target_yaw, target_pitch = self.config.yaw_bias, self.config.pitch_bias
         alpha = -math.expm1(-dt / self.config.smoothing_seconds)

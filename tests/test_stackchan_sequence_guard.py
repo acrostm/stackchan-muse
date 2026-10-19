@@ -11,6 +11,9 @@ BOARDS = ROOT / 'firmware/esp32/components/muse/boards'
 def function_body(source: str, signature: str) -> str:
     start = source.index(signature)
     brace = source.index('{', start)
+    while source.find(';', start, brace) >= 0:
+        start = source.index(signature, source.find(';', start, brace) + 1)
+        brace = source.index('{', start)
     depth = 0
     for index in range(brace, len(source)):
         if source[index] == '{':

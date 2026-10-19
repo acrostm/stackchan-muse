@@ -76,6 +76,14 @@ esp_err_t stackchan_head_set_power(bool on);
 /* Bench/serial: head.status, head.calibrate, head.stop, head.look=YAW,PITCH. */
 bool stackchan_head_console_command(const char *line);
 
+/* Explicit USB tracking session. Any stop or explicit command invalidates it.
+ * Requests use tenths of degrees, ordered sequence numbers and a 100..1000 ms
+ * device-local TTL. Expiry requires a new explicit begin, never auto-resume. */
+uint32_t stackchan_head_track_begin(void);
+esp_err_t stackchan_head_track_stop(uint32_t generation);
+esp_err_t stackchan_head_track(uint32_t generation, uint32_t sequence,
+                                int yaw_tenths, int pitch_tenths, int ttl_ms);
+
 #ifdef __cplusplus
 }
 #endif
