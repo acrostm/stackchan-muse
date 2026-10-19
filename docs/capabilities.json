@@ -17,7 +17,7 @@
     "shared_tools_and_approval": "unknown",
     "shared_history": "unknown",
     "long_task_completion_events": "unknown",
-    "head_calibration_and_limits": "implemented: official per-unit NVS zero keys, feedback-gated startup, raw/angle limits, one priority arbiter and torque release; physical calibration pending",
+    "head_calibration_and_limits": "implemented: official per-unit NVS zero keys plus an explicit muse_cal confirmation marker, feedback-gated startup, raw/angle limits, one priority arbiter and torque release; physical calibration pending",
     "conversation_head_motion": "implemented and host-tested: finished reply text selects small local gestures; hardware motion pending",
     "touch_cancellation": "not_hardware_verified",
     "camera": "upstream_capture_not_usable",

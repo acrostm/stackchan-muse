@@ -67,6 +67,7 @@ static const char *TAG = "stackchan_head";
 #define SERVO_REG_PRESENT_POS 56
 #define SERVO_RAW_MIN 0
 #define SERVO_RAW_MAX 1000
+#define MUSE_CAL_KEY "muse_cal"
 #define SCS_INST_READ 0x02
 #define SCS_INST_WRITE 0x03
 #define MOTION_PERIOD_MS 20
@@ -262,7 +263,10 @@ static bool load_calibration(void)
         return false;
     }
     int32_t yaw = -1, pitch = -1;
-    const bool valid = nvs_get_i32(nvs, "zero_pos_1", &yaw) == ESP_OK &&
+    uint8_t muse_confirmed = 0;
+    const bool valid = nvs_get_u8(nvs, MUSE_CAL_KEY, &muse_confirmed) == ESP_OK &&
+                       muse_confirmed == 1 &&
+                       nvs_get_i32(nvs, "zero_pos_1", &yaw) == ESP_OK &&
                        nvs_get_i32(nvs, "zero_pos_2", &pitch) == ESP_OK &&
                        valid_raw(yaw) >= 0 && valid_raw(pitch) >= 0;
     nvs_close(nvs);
@@ -283,6 +287,7 @@ static esp_err_t save_calibration(int yaw, int pitch)
     if (err != ESP_OK) return err;
     err = nvs_set_i32(nvs, "zero_pos_1", yaw);
     if (err == ESP_OK) err = nvs_set_i32(nvs, "zero_pos_2", pitch);
+    if (err == ESP_OK) err = nvs_set_u8(nvs, MUSE_CAL_KEY, 1);
     if (err == ESP_OK) err = nvs_commit(nvs);
     nvs_close(nvs);
     return err;
