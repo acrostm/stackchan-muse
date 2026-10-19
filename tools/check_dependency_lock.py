@@ -5,21 +5,22 @@ from pathlib import Path
 import yaml
 
 
-def validate(expected, actual):
+def validate(expected, actual, target='esp32s3'):
     for name, dependency in actual['dependencies'].items():
         locked = expected['dependencies'].get(name)
         if locked is None or any(dependency.get(key) != locked.get(key)
                                  for key in ('version', 'component_hash')):
             raise ValueError('Unreviewed dependency version or hash: ' + name)
-    if actual.get('target') != 'esp32s3':
-        raise ValueError('Unexpected firmware target')
+    if actual.get('target') != target:
+        raise ValueError(f'Unexpected firmware target: {actual.get("target")} (wanted {target})')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('actual', type=Path)
+    parser.add_argument('--target', default='esp32s3')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     validate(yaml.safe_load((root / 'docs/firmware-dependencies.lock.yml').read_text()),
-             yaml.safe_load(args.actual.read_text()))
+             yaml.safe_load(args.actual.read_text()), args.target)
     print('Resolved package versions and hashes match the reviewed snapshot.')

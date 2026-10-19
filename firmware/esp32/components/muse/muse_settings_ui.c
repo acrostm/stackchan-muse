@@ -647,12 +647,14 @@ static void on_wifi_other(lv_event_t *e)
     open_text("Other network", "", false, MUSE_SSID_MAX, "Network name", on_other_ssid, s_wifi);
 }
 
+#if CONFIG_SPIRAM
 static void on_browser_setup(lv_event_t *e)
 {
     (void)e;
     sw_portal_request();
     muse_state_poke();
 }
+#endif
 
 /* Two taps within a few seconds forget a saved network. */
 static void on_wifi_saved(lv_event_t *e)
@@ -765,7 +767,11 @@ static void build_wifi_page(lv_obj_t *tile)
     s_wifi_list = column(list);
 
     row(list, LV_SYMBOL_EDIT, "Other network...", NULL, on_wifi_other, NULL);
+#if CONFIG_SPIRAM
     row(list, LV_SYMBOL_SETTINGS, "Browser setup / proxy / voice", NULL, on_browser_setup, NULL);
+#else
+    note(list, "Browser setup and device TTS require PSRAM on this board.");
+#endif
     lv_obj_t *mac = info_row(list, "MAC address");
     uint8_t m[6];
     if (esp_read_mac(m, ESP_MAC_WIFI_STA) == ESP_OK) {
@@ -804,6 +810,7 @@ static void tick_wifi(void)
         break;
     }
     set_text(s_wifi_status, buf);
+#if CONFIG_SPIRAM
     char setup_name[33], setup_pin[17];
     bool setup_on;
     sw_portal_info(setup_name, sizeof(setup_name), setup_pin, sizeof(setup_pin), &setup_on);
@@ -813,6 +820,9 @@ static void tick_wifi(void)
         lv_label_set_text(s_setup_info, "Browser setup / proxy / Muse / Doubao");
     }
     memset(setup_pin, 0, sizeof(setup_pin));
+#else
+    set_text(s_setup_info, "Browser setup unavailable without PSRAM");
+#endif
     lv_obj_set_style_text_color(s_wifi_status, lv_color_hex(w.state == MUSE_WIFI_CONNECTED ? COLOR_OK :
                                                             w.state == MUSE_WIFI_FAILED ? COLOR_WARN : COLOR_DIM), 0);
 

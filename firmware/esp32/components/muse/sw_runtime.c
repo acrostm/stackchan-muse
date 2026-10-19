@@ -27,6 +27,10 @@ esp_err_t sw_runtime_start(void)
     lock = xSemaphoreCreateMutex();
     if (!lock) return ESP_ERR_NO_MEM;
     strcpy(config.speaker, "zh_female_vv_uranus_bigtts");
+#if !CONFIG_SPIRAM
+    strlcpy(tts_status, "Unavailable without PSRAM", sizeof(tts_status));
+    return ESP_OK;   /* preserve the board's original Link text path */
+#else
     nvs_handle_t nvs;
     if (nvs_open("sw_muse", NVS_READONLY, &nvs) == ESP_OK) {
         size_t n = sizeof(config);
@@ -44,6 +48,7 @@ esp_err_t sw_runtime_start(void)
     err = sw_tts_init();
     if (err != ESP_OK) return err;
     return sw_portal_init();
+#endif
 }
 
 void sw_config_get(sw_config_t *out)
@@ -86,6 +91,14 @@ void sw_tts_status(char *out, size_t cap)
 extern bool sw_voice_probe(void);
 bool sw_console_command(const char *line)
 {
+#if !CONFIG_SPIRAM
+    if (!strcmp(line, "sw.cancel")) {
+        sw_capture_cancel();
+        printf("@sw.cancel requested\n");
+        return true;
+    }
+    return false;
+#else
     if (!strcmp(line, "sw.setup")) {
         sw_portal_request(); printf("@sw.setup requested\n");
     } else if (!strcmp(line, "sw.setup.close")) {
@@ -127,6 +140,7 @@ bool sw_console_command(const char *line)
         memset(&c, 0, sizeof(c));
     } else return false;
     fflush(stdout); return true;
+#endif
 }
 
 const char *sw_ble_state(void)

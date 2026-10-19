@@ -135,7 +135,11 @@ static bool proxy_fields(cJSON *root, sw_proxy_config_t *out)
 {
     cJSON *enabled = cJSON_GetObjectItemCaseSensitive(root, "proxy_enabled");
     if (enabled) { if (!cJSON_IsBool(enabled)) return false; out->enabled = cJSON_IsTrue(enabled); }
-    if (!field(root, "proxy_host", out->host, sizeof(out->host))) return false;
+    cJSON *host = cJSON_GetObjectItemCaseSensitive(root, "proxy_host");
+    if (host) {
+        if (!cJSON_IsString(host) || strlen(host->valuestring) >= sizeof(out->host)) return false;
+        strcpy(out->host, host->valuestring);   /* empty + disabled deletes the profile */
+    }
     cJSON *port = cJSON_GetObjectItemCaseSensitive(root, "proxy_port");
     if (port) {
         if (!cJSON_IsString(port) || !port->valuestring[0]) return false;

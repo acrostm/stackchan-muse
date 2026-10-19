@@ -52,7 +52,7 @@ idf.py -B build-stackchan -DIDF_TARGET=esp32s3 \
 
 ## 质量门禁和交付
 
-PR 和 main 推送检查仓库及凭据、项目测试、上游主机测试、UI 模拟器，以及 StackChan/CoreS3 两种无账号固件的编译和分区大小。CI 不刷硬件、不调用付费 API、不配对账号、不接收个人凭据。构建包附带校验和及源码来源。
+PR 和 main 推送检查仓库及凭据、项目测试、上游主机测试、UI 模拟器，以及 StackChan/CoreS3/Waveshare C6 三种无账号固件的编译和分区大小。CI 不刷硬件、不调用付费 API、不配对账号、不接收个人凭据。构建包附带校验和及源码来源。
 
 发布必须有匹配源码树的实机报告、CI 全部成功、人工明确确认，并经过 `firmware-release` 环境。流水线只创建**草稿发布**；人工记录不等于自动证明硬件无故障。规则见[CI 与发布说明](docs/ci-release.md)。
 

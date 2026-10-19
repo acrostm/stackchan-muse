@@ -39,6 +39,8 @@ await form.handlers.submit({preventDefault(){}});
 assert.equal(posted.ssid,'home');assert.equal(posted.proxy_enabled,false);
 assert.equal(posted.proxy_host,'192.168.1.5');assert.equal(posted.proxy_port,'1080');
 assert.equal(posted.sdk_token,'');assert.equal(posted.api_key,'');assert.equal(posted.password,'');
+$('#proxy-host').value='';await form.handlers.submit({preventDefault(){}});
+assert.equal(posted.proxy_host,'');assert.equal(posted.proxy_enabled,false);
 })().catch(e=>{console.error(e);process.exitCode=1;});
 '''
         with tempfile.TemporaryDirectory() as tmp:

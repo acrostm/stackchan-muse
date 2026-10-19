@@ -37,6 +37,7 @@ int main(void) {
     assert(muse_ptt_should_submit(muse_ptt_result(), false, true));
     muse_ptt_cancel();
     assert(!muse_ptt_should_submit(muse_ptt_result(), false, true));
+    assert(!muse_ptt_should_submit(MUSE_PTT_CANCELLED, true, false));
     assert(muse_ptt_should_submit(MUSE_PTT_SEND, false, false));
     assert(muse_ptt_should_submit(MUSE_PTT_WAIT, true, false));
     assert(!muse_ptt_should_submit(MUSE_PTT_SHORT, false, false));

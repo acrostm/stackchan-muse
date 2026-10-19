@@ -782,7 +782,9 @@ static bool can_record(void)
     return true;
 }
 
-static void speak_tts_text(const char *text, bool notification)
+/* Returns true when a new talk press interrupted playback; the caller must
+ * keep that press and enter the normal recording path without losing it. */
+static bool speak_tts_text(const char *text, bool notification)
 {
     static int16_t pcm[MUSE_AUDIO_CHUNK];
     char caption[96];
@@ -793,7 +795,7 @@ static void speak_tts_text(const char *text, bool notification)
         muse_state_set_caption("%s", caption);
         muse_state_set_reply_pending(notification);
         go_idle(caption);
-        return;
+        return false;
     }
     if (notification) muse_audio_chirp(1);
     if (!sw_tts_start(text)) {
@@ -801,16 +803,18 @@ static void speak_tts_text(const char *text, bool notification)
         muse_state_set_caption("%s", caption);
         muse_state_set_reply_pending(notification);
         go_idle(caption);
-        return;
+        return false;
     }
     muse_state_set_mode(MUSE_MODE_SPEAKING);
     muse_state_set_caption("%s", notification ? "NOTIFICATION" : "TTS SPEAKER TEST");
     bool heard = false;
+    bool interrupted = false;
     size_t played = 0;
     int64_t deadline = esp_timer_get_time() + 45LL * 1000000;
     while (esp_timer_get_time() < deadline) {
         if (got_event(MUSE_PTT_DOWN)) {
             sw_tts_cancel();
+            interrupted = true;
             break;
         }
         size_t n = sw_tts_read(pcm, sizeof(pcm)) / sizeof(pcm[0]);
@@ -827,8 +831,10 @@ static void speak_tts_text(const char *text, bool notification)
     ESP_LOGI(TAG, "%s TTS finished: %.2f s of PCM",
              notification ? "notification" : "speaker-test",
              (double)played / MUSE_AUDIO_RATE);
+    if (interrupted) return true;
     if (notification && heard) muse_state_set_reply_pending(true);
     go_idle(heard ? "" : "TTS FAILED OR BUSY");
+    return false;
 }
 
 static void voice_task(void *arg)
@@ -892,13 +898,14 @@ static void voice_task(void *arg)
             char notice[MUSE_NOTICE_TEXT_MAX + 1];
             if (muse_notice_take(notice, sizeof(notice))) {
                 muse_state_set_asleep(false);
-                speak_tts_text(notice, true);
+                pending_down = speak_tts_text(notice, true);
                 memset(notice, 0, sizeof(notice));
                 continue;
             }
             if (s_tts_test) {
                 s_tts_test = false;
-                speak_tts_text("你好，我是你的 Muse。中文语音播放测试成功。", false);
+                pending_down = speak_tts_text(
+                    "你好，我是你的 Muse。中文语音播放测试成功。", false);
                 continue;
             }
             /* The 20 ms read paces this loop. */
