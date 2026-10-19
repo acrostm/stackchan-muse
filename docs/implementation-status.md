@@ -133,7 +133,7 @@ certificate was validated; direct Mac probes through both HTTP and SOCKS have
 the same failure. This is tracked as an external proxy-node issue, not counted
 as a successful Muse voice round trip.
 
-Latest local project suite: 47 tests passed. The new idle notification queue is
+Latest local project suite: 49 tests passed. The new idle notification queue is
 bounded to four messages, deduplicates 32 recent IDs, preserves complete UTF-8,
 and only accepts terminal assistant/text events. Real scheduled-task delivery
 still needs a working Muse connection and an actual account-side event.
@@ -183,7 +183,7 @@ serial console so an operator can centre the head by hand and save the real
 position without boot-time movement.
 
 The StackChan firmware builds at `0x221000` bytes with 47% of its app slot free.
-The 47-test project suite and UI-independent motion planner pass. Per-unit
+The 49-test project suite and UI-independent motion planner pass. Per-unit
 calibration, physical limit observation, audible/visual gesture capture and
 long-duration servo stability still require the attached robot and are not
 claimed as hardware-verified.

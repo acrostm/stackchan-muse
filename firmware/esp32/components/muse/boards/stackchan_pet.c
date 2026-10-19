@@ -84,9 +84,10 @@ static int64_t now_ms(void)
     return esp_timer_get_time() / 1000;
 }
 
-static void pet_move(int yaw, int pitch)
+static bool pet_move(uint32_t generation, int yaw, int pitch)
 {
-    stackchan_head_move(yaw, pitch, 350, STACKCHAN_MOVE_PET, 0);
+    return stackchan_head_move_for_generation(
+        yaw, pitch, 350, STACKCHAN_MOVE_PET, 0, generation) == ESP_OK;
 }
 
 static esp_err_t si12t_write(uint8_t reg, uint8_t val)
@@ -167,13 +168,13 @@ static void react_shake(void)
         return;
     }
     react_pet(false);
-    if (stackchan_head_present()) {
-        stackchan_head_stop();
-        pet_move(-14, 0);
+    const uint32_t generation = stackchan_head_stop_and_generation();
+    if (generation) {
+        bool alive = pet_move(generation, -14, 0);
         vTaskDelay(pdMS_TO_TICKS(140));
-        pet_move(14, 0);
+        alive = alive && pet_move(generation, 14, 0);
         vTaskDelay(pdMS_TO_TICKS(140));
-        pet_move(0, 0);
+        if (alive) (void)pet_move(generation, 0, 0);
     }
 }
 
@@ -183,11 +184,11 @@ static void react_pickup(void)
         return;
     }
     react_pet(false);
-    if (stackchan_head_present()) {
-        stackchan_head_stop();
-        pet_move(0, 18);   /* look up at whoever picked it up */
+    const uint32_t generation = stackchan_head_stop_and_generation();
+    if (generation) {
+        const bool alive = pet_move(generation, 0, 18);   /* look up at whoever picked it up */
         vTaskDelay(pdMS_TO_TICKS(450));
-        pet_move(0, 0);
+        if (alive) (void)pet_move(generation, 0, 0);
     }
 }
 
@@ -198,11 +199,11 @@ static void react_boop(void)
         return;
     }
     react_pet(false);
-    if (stackchan_head_present()) {
-        stackchan_head_stop();
-        pet_move(0, 4);
+    const uint32_t generation = stackchan_head_stop_and_generation();
+    if (generation) {
+        const bool alive = pet_move(generation, 0, 4);
         vTaskDelay(pdMS_TO_TICKS(220));
-        pet_move(0, 0);
+        if (alive) (void)pet_move(generation, 0, 0);
     }
 }
 

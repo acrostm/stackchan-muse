@@ -86,6 +86,7 @@ static bool s_present;
 static bool s_uart_ready;
 static bool s_calibrated;
 static bool s_torque_on;
+static uint32_t s_generation = 1;
 
 static esp_err_t ioe_read(uint8_t reg, uint8_t *val)
 {
@@ -431,16 +432,31 @@ bool stackchan_head_present(void)
 
 bool stackchan_head_ready(void)
 {
-    if (!s_lock) return false;
+    return stackchan_head_ready_generation() != 0;
+}
+
+uint32_t stackchan_head_ready_generation(void)
+{
+    if (!s_lock) return 0;
     xSemaphoreTake(s_lock, portMAX_DELAY);
     const bool ready = s_present && s_calibrated && s_motion_task;
+    const uint32_t generation = ready ? s_generation : 0;
     xSemaphoreGive(s_lock);
-    return ready;
+    return generation;
 }
 
 esp_err_t stackchan_head_move(int yaw_deg, int pitch_deg, int speed,
                               stackchan_move_priority_t priority,
                               int64_t expires_us)
+{
+    return stackchan_head_move_for_generation(yaw_deg, pitch_deg, speed, priority,
+                                              expires_us, 0);
+}
+
+esp_err_t stackchan_head_move_for_generation(int yaw_deg, int pitch_deg, int speed,
+                                             stackchan_move_priority_t priority,
+                                             int64_t expires_us,
+                                             uint32_t generation)
 {
     if (!s_lock) return ESP_ERR_NOT_FOUND;
     xSemaphoreTake(s_lock, portMAX_DELAY);
@@ -451,6 +467,14 @@ esp_err_t stackchan_head_move(int yaw_deg, int pitch_deg, int speed,
     if (!s_calibrated || !s_motion_task) {
         xSemaphoreGive(s_lock);
         return ESP_ERR_INVALID_STATE;
+    }
+    if (generation && generation != s_generation) {
+        xSemaphoreGive(s_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!generation && priority >= STACKCHAN_MOVE_COMMAND) {
+        ++s_generation;
+        if (!s_generation) ++s_generation;
     }
     yaw_deg = yaw_deg < -128 ? -128 : yaw_deg > 128 ? 128 : yaw_deg;
     pitch_deg = pitch_deg < 0 ? 0 : pitch_deg > 90 ? 90 : pitch_deg;
@@ -474,10 +498,8 @@ esp_err_t stackchan_head_center(void)
     return stackchan_head_look(0, 0);
 }
 
-void stackchan_head_stop(void)
+static void stop_locked(void)
 {
-    if (!s_lock) return;
-    xSemaphoreTake(s_lock, portMAX_DELAY);
     stackchan_motion_cancel(&s_motion);
     const int yaw = (int)s_motion.yaw;
     const int pitch = (int)s_motion.pitch;
@@ -493,7 +515,24 @@ void stackchan_head_stop(void)
     s_last_pitch = pitch;
     s_torque_on = false;
     s_rest_since_us = esp_timer_get_time();
+}
+
+uint32_t stackchan_head_stop_and_generation(void)
+{
+    if (!s_lock) return 0;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    stop_locked();
+    ++s_generation;
+    if (!s_generation) ++s_generation;
+    const uint32_t generation =
+        s_present && s_calibrated && s_motion_task ? s_generation : 0;
     xSemaphoreGive(s_lock);
+    return generation;
+}
+
+void stackchan_head_stop(void)
+{
+    (void)stackchan_head_stop_and_generation();
 }
 
 esp_err_t stackchan_head_calibrate_current(void)

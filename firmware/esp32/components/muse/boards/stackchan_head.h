@@ -44,15 +44,26 @@ bool stackchan_head_ready(void);
 esp_err_t stackchan_head_look(int yaw_deg, int pitch_deg);
 
 /* Priority-arbitrated target in whole degrees. Lower-priority requests cannot
- * interrupt a higher-priority gesture. TTL 0 holds until replaced. */
+ * interrupt a higher-priority gesture. Command/emergency priorities invalidate
+ * any older multi-step expression or pet sequence. TTL 0 holds until replaced. */
 esp_err_t stackchan_head_move(int yaw_deg, int pitch_deg, int speed,
                               stackchan_move_priority_t priority,
                               int64_t expires_us);
 
+/* Multi-step gestures capture a generation and pass it back to each move.
+ * Stop or a higher-priority explicit command invalidates those later moves. */
+uint32_t stackchan_head_ready_generation(void);
+uint32_t stackchan_head_stop_and_generation(void);
+esp_err_t stackchan_head_move_for_generation(int yaw_deg, int pitch_deg, int speed,
+                                             stackchan_move_priority_t priority,
+                                             int64_t expires_us,
+                                             uint32_t generation);
+
 /* Back to yaw 0, pitch 0. */
 esp_err_t stackchan_head_center(void);
 
-/* Immediately stop torque and discard any queued target. */
+/* Immediately stop torque, discard queued targets and invalidate older
+ * multi-step sequences. */
 void stackchan_head_stop(void);
 
 /* Save the current physical position as this unit's (0, 0). Centre the head
