@@ -17,6 +17,7 @@
 #include "muse_voice.h"
 
 #include <math.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,8 +41,13 @@
 #include "muse_state.h"
 #include "muse_wifi.h"
 #include "sw_runtime.h"
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+#include "boards/stackchan_expression.h"
+#include "boards/stackchan_head.h"
+#endif
 
 static const char *TAG = "muse_voice";
+static atomic_bool s_stop_requested;
 
 #define MAX_SECS 15
 #define TAIL_FRAMES (MUSE_AUDIO_RATE * 12 / 100)   /* capture lag + poll interval, stops before the release click */
@@ -179,6 +185,11 @@ static bool got_event(muse_ptt_t type)
     return hit;
 }
 
+static bool take_stop_request(void)
+{
+    return atomic_exchange_explicit(&s_stop_requested, false, memory_order_acq_rel);
+}
+
 /* Consume queued events and return the first press that must start another
  * recording turn. The turn id keeps its release/cancel state independent from
  * a later physical press. */
@@ -191,6 +202,11 @@ static bool take_down(uint32_t *turn, bool *wake)
         muse_state_poke();
         if (ev.type == MUSE_PTT_DOWN && !hit) {
             hit = true;
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+            /* Invalidate the old reply/notification gesture at interruption,
+             * before any audio drain or transition into the next recording. */
+            stackchan_head_stop();
+#endif
             if (turn) *turn = ev.turn ? ev.turn : muse_ptt_press(esp_timer_get_time());
             if (wake) *wake = ev.wake;
         } else if (ev.type == MUSE_PTT_DOWN) {
@@ -314,6 +330,11 @@ static bool record(bool barge_in, size_t *held, bool *reached_limit,
     bool released = false;
     size_t stop_at = MAX_FRAMES;
     while (n + MUSE_AUDIO_CHUNK <= stop_at) {
+        if (take_stop_request()) {
+            ok = false;
+            strlcpy(why, "STOPPED", cap);
+            break;
+        }
         if (muse_audio_read(s_chunk, MUSE_AUDIO_CHUNK) != ESP_OK) {
             break;
         }
@@ -381,7 +402,7 @@ static void go_idle(const char *caption);
  * Plays Hatch's reply as it arrives, with its text as the caption. Returns
  * true if interrupted by a new press. *delivered: the VM has the note.
  */
-static bool hatch_reply(bool *delivered, uint32_t *press_turn)
+static bool hatch_reply(bool *delivered, uint32_t *press_turn, bool *stopped)
 {
     muse_state_set_mode(MUSE_MODE_THINKING);
     muse_state_set_caption("SENDING VOICE NOTE");   /* until there's a transcript or reply */
@@ -393,7 +414,16 @@ static bool hatch_reply(bool *delivered, uint32_t *press_turn)
     size_t played = 0;
     int64_t t0 = esp_timer_get_time();
     *delivered = false;
+    if (stopped) *stopped = false;
     for (;;) {
+        if (take_stop_request()) {
+            muse_hatch_turn_cancel();
+            muse_state_set_level(0);
+            muse_state_set_reply_pending(false);
+            if (stopped) *stopped = true;
+            go_idle("");
+            return false;
+        }
         muse_hatch_ev_t ev;
         while ((ev = muse_hatch_turn_event(text, sizeof(text))) != MUSE_HATCH_EV_NONE) {
             switch (ev) {
@@ -465,7 +495,16 @@ static bool hatch_reply(bool *delivered, uint32_t *press_turn)
     }
     if (!played) {
         /* No speech (TTS unavailable): leave the reply text up for a moment. */
-        vTaskDelay(pdMS_TO_TICKS(2500));
+        for (int i = 0; i < 25; ++i) {
+            if (take_stop_request()) {
+                muse_hatch_turn_cancel();
+                muse_state_set_reply_pending(false);
+                if (stopped) *stopped = true;
+                go_idle("");
+                return false;
+            }
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
     }
     return false;
 }
@@ -607,6 +646,7 @@ typedef enum {
     FED,
     FEED_FAILED,    /* the turn failed, or Hatch stopped taking audio */
     FEED_PRESSED,   /* a press is queued: it goes first */
+    FEED_STOPPED,   /* the user cancelled from the face */
 } feed_t;
 
 /*
@@ -618,6 +658,7 @@ static feed_t feed_rest(const int16_t *pcm, size_t frames, size_t *sent, bool yi
     char text[96];
     int64_t moved = esp_timer_get_time();
     for (;;) {
+        if (take_stop_request()) return FEED_STOPPED;
         muse_hatch_ev_t ev;
         while ((ev = muse_hatch_turn_event(text, sizeof(text))) != MUSE_HATCH_EV_NONE) {
             if (ev == MUSE_HATCH_EV_ERROR) {
@@ -687,11 +728,11 @@ static bool send_held(bool quiet, uint32_t *press_turn)
     muse_hatch_turn_begin();
     size_t sent = 0;
     feed_t fed = feed_rest(h->pcm, h->frames, &sent, true);
-    bool delivered = false, interrupted = false;
+    bool delivered = false, interrupted = false, stopped = false;
     if (fed == FED && quiet) {
         delivered = wait_delivered();
     } else if (fed == FED) {
-        interrupted = hatch_reply(&delivered, press_turn);
+        interrupted = hatch_reply(&delivered, press_turn, &stopped);
     }
     if (fed != FED || quiet) {
         muse_hatch_turn_cancel();   /* asleep, the reply is left for the app */
@@ -700,6 +741,16 @@ static bool send_held(bool quiet, uint32_t *press_turn)
         if (!quiet) {
             go_idle("");
         }
+        return false;
+    }
+    if (fed == FEED_STOPPED) {
+        drop_oldest();
+        go_idle("");
+        return false;
+    }
+    if (stopped) {
+        drop_oldest();
+        go_idle("");
         return false;
     }
     const char *caption;
@@ -761,7 +812,7 @@ static bool finish_note(uint32_t *press_turn)
     bool delivered;
 #if HOLD_NOTES
     if (s_rec) {
-        bool fed = false, interrupted = false;
+        bool fed = false, interrupted = false, stopped = false;
         delivered = false;
         if (s_live && s_sent == s_rec_n) {
             muse_hatch_turn_end();   /* before the chirp, which takes ~90 ms */
@@ -772,15 +823,22 @@ static bool finish_note(uint32_t *press_turn)
             /* Hatch is behind (still connecting, say): the rest from the kept note. */
             muse_state_set_mode(MUSE_MODE_THINKING);
             muse_state_set_caption("SENDING VOICE NOTE");
-            fed = feed_rest(s_rec, s_rec_n, &s_sent, false) == FED;
+            feed_t result = feed_rest(s_rec, s_rec_n, &s_sent, false);
+            if (result == FEED_STOPPED) {
+                muse_hatch_turn_cancel();
+                drop_rec();
+                go_idle("");
+                return false;
+            }
+            fed = result == FED;
             if (!fed) {
                 muse_hatch_turn_cancel();
             }
         }
         if (fed) {
-            interrupted = hatch_reply(&delivered, press_turn);
+            interrupted = hatch_reply(&delivered, press_turn, &stopped);
         }
-        if (delivered || interrupted) {
+        if (stopped || delivered || interrupted) {
             drop_rec();
         } else {
             hold_rec(s_tried);
@@ -790,7 +848,9 @@ static bool finish_note(uint32_t *press_turn)
 #endif
     muse_hatch_turn_end();   /* before the chirp, which takes ~90 ms */
     muse_audio_chirp(0);
-    return hatch_reply(&delivered, press_turn);
+    bool stopped = false;
+    const bool interrupted = hatch_reply(&delivered, press_turn, &stopped);
+    return stopped ? false : interrupted;
 }
 
 /*
@@ -845,6 +905,9 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
     ESP_LOGI(TAG, "%s TTS start (%u chars)",
              notification ? "notification" : "speaker-test", (unsigned)strlen(text));
     sw_text_copy(caption, sizeof(caption), text);
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+    if (notification) stackchan_express_reply(text);
+#endif
     if (!muse_settings_speaker_on()) {
         muse_state_set_caption("%s", caption);
         muse_state_set_reply_pending(notification);
@@ -866,6 +929,13 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
     size_t played = 0;
     int64_t deadline = esp_timer_get_time() + 45LL * 1000000;
     while (esp_timer_get_time() < deadline) {
+        if (take_stop_request()) {
+            sw_tts_cancel();
+            muse_state_set_level(0);
+            pre_reset();
+            go_idle("");
+            return false;
+        }
         if (take_down(press_turn, NULL)) {
             sw_tts_cancel();
             interrupted = true;
@@ -907,6 +977,8 @@ static void voice_task(void *arg)
         bool barge_in = false;
         uint32_t turn = pending_turn;
         pending_turn = 0;
+        if (!turn && muse_state_mode(NULL) == MUSE_MODE_IDLE)
+            (void)take_stop_request();
         if (turn) {
             barge_in = pending_barge;
             pending_barge = false;
@@ -995,6 +1067,10 @@ static void voice_task(void *arg)
             go_idle("PTT BUSY");
             continue;
         }
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+        /* A new talk turn cancels any old reply gesture before recording. */
+        stackchan_head_stop();
+#endif
         if (wake && !held_on_waking()) {
             muse_ptt_retire(turn);
             continue;   /* a tap: it only woke Muse */
@@ -1065,6 +1141,20 @@ float muse_voice_monitor_db(void)
 void muse_voice_request_chirp(void)
 {
     s_chirp = true;
+    muse_state_nudge();
+}
+
+void muse_voice_request_stop(void)
+{
+    atomic_store_explicit(&s_stop_requested, true, memory_order_release);
+    muse_ptt_cancel_current();
+#if CONFIG_MUSE_HATCH
+    /* The session backend posts cancellation to its own worker. The Link
+     * backend frees buffers synchronously and must only be called by the
+     * owning voice task when it observes s_stop_requested. */
+    muse_hatch_turn_cancel();
+#endif
+    sw_tts_cancel();
     muse_state_nudge();
 }
 

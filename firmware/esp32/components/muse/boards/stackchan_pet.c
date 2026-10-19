@@ -84,6 +84,12 @@ static int64_t now_ms(void)
     return esp_timer_get_time() / 1000;
 }
 
+static bool pet_move(uint32_t generation, int yaw, int pitch)
+{
+    return stackchan_head_move_for_generation(
+        yaw, pitch, 350, STACKCHAN_MOVE_PET, 0, generation) == ESP_OK;
+}
+
 static esp_err_t si12t_write(uint8_t reg, uint8_t val)
 {
     const uint8_t buf[2] = { reg, val };
@@ -162,12 +168,13 @@ static void react_shake(void)
         return;
     }
     react_pet(false);
-    if (stackchan_head_present()) {
-        stackchan_head_look(-14, 0);
+    const uint32_t generation = stackchan_head_stop_and_generation();
+    if (generation) {
+        bool alive = pet_move(generation, -14, 0);
         vTaskDelay(pdMS_TO_TICKS(140));
-        stackchan_head_look(14, 0);
+        alive = alive && pet_move(generation, 14, 0);
         vTaskDelay(pdMS_TO_TICKS(140));
-        stackchan_head_center();
+        if (alive) (void)pet_move(generation, 0, 0);
     }
 }
 
@@ -177,10 +184,11 @@ static void react_pickup(void)
         return;
     }
     react_pet(false);
-    if (stackchan_head_present()) {
-        stackchan_head_look(0, 18);   /* look up at whoever picked it up */
+    const uint32_t generation = stackchan_head_stop_and_generation();
+    if (generation) {
+        const bool alive = pet_move(generation, 0, 18);   /* look up at whoever picked it up */
         vTaskDelay(pdMS_TO_TICKS(450));
-        stackchan_head_center();
+        if (alive) (void)pet_move(generation, 0, 0);
     }
 }
 
@@ -191,10 +199,11 @@ static void react_boop(void)
         return;
     }
     react_pet(false);
-    if (stackchan_head_present()) {
-        stackchan_head_look(0, -8);
+    const uint32_t generation = stackchan_head_stop_and_generation();
+    if (generation) {
+        const bool alive = pet_move(generation, 0, 4);
         vTaskDelay(pdMS_TO_TICKS(220));
-        stackchan_head_center();
+        if (alive) (void)pet_move(generation, 0, 0);
     }
 }
 
@@ -311,6 +320,7 @@ static void pet_task(void *arg)
                     if (face_down_ms >= 1200 && !s_face_down) {
                         s_face_down = true;
                         ESP_LOGI(TAG, "face down (g %.2f %.2f %.2f)", gx, gy, gz);
+                        stackchan_head_stop();
                         if (!muse_state_asleep() &&
                             muse_state_mode(NULL) == MUSE_MODE_IDLE &&
                             muse_state_idle_secs() > 3.0f) {
@@ -336,6 +346,7 @@ static void pet_task(void *arg)
                 s_head_touched = touched;
                 if (touched && !was_touched) {
                     ESP_LOGI(TAG, "head pat (channels %02x)", out);
+                    stackchan_head_stop();
                     react_pet(true);
 #if CONFIG_MUSE_STACKCHAN_PENDING_LED
                     /* A second pat within 800 ms reads a waiting reply; a

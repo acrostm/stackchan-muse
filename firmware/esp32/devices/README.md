@@ -182,14 +182,21 @@ the AW9523 expander. The side power key reaches only the AXP2101, so it is
 the talk button through the PMU's latched key edges. The robot body adds
 two Feetech SCSCL servos (yaw and pitch), powered through the base's M5IOE1
 expander, and Muse can aim the head with the `stackchan.look` device
-command and set the face with `stackchan.face`. The CoreS3's IMU and the
+command and set the face with `stackchan.face`. Motion uses M5's per-unit
+servo zero positions, reads present position before torque, limits speed through
+one arbiter, and releases torque at rest. Factory zero positions alone never
+enable motion; `servo/muse_cal=1` is written only by the explicit calibration
+command. If `stackchan.guide` reports `head_motion:false`, centre the head by
+hand while torque is off, then send `head.calibrate` on the serial console and
+verify with `head.status`. The CoreS3's IMU and the
 head's Si12T touch sensor drive pet reactions (shake, tap, pickup,
 face-down to sleep, a pat on the head) through the same happy-face state
 the UI uses when the face is tapped. The head is optional: on a bare CoreS3
-the servo and head-touch code quietly does nothing. The camera is not wired
-up yet: M5 publishes the GC0308's I2C address but not its data pins. Back up
-the flash before flashing Muse for the first time, and write the backup
-back to return to M5's firmware.
+the servo and head-touch code quietly does nothing. A build with
+`--with-camera` exposes one explicit GC0308 still capture at a time; hardware
+capture and concurrent audio/vision still require bench validation. Back up the
+flash before flashing Muse for the first time, and write the backup back to
+return to M5's firmware.
 
 ## Build
 

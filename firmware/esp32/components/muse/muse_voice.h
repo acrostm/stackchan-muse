@@ -38,6 +38,10 @@ float muse_voice_monitor_db(void);
 /* Plays a short chirp at the current volume (when idle). */
 void muse_voice_request_chirp(void);
 
+/* Cancel the active recording/reply/TTS and make the voice task return to
+ * idle without waiting for another network event. */
+void muse_voice_request_stop(void);
+
 /* Runs muse_audio_loopback_test() at the current volume (when idle); results go to the log. */
 void muse_voice_request_loopback(void);
 

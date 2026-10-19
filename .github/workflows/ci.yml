@@ -50,12 +50,19 @@ jobs:
           - board: stackchan
             profile: m5stack-stackchan
             target: esp32s3
+            extra_config: ""
+          - board: stackchan-camera
+            profile: m5stack-stackchan
+            target: esp32s3
+            extra_config: CONFIG_MUSE_STACKCHAN_CAMERA=y
           - board: cores3
             profile: m5stack-cores3
             target: esp32s3
+            extra_config: ""
           - board: waveshare-c6-18
             profile: waveshare-c6-18
             target: esp32c6
+            extra_config: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -65,12 +72,19 @@ jobs:
         working-directory: firmware/esp32
         env:
           BOARD: ${{ matrix.board }}
+          EXTRA_CONFIG: ${{ matrix.extra_config }}
         run: |
           . "$IDF_PATH/export.sh" > /dev/null
           cp ../../docs/firmware-dependencies.lock.yml dependencies.lock
+          defaults="sdkconfig.defaults;devices/sdkconfig.muse;devices/sdkconfig.muse-${{ matrix.profile }}"
+          mkdir -p build-ci
+          if [ -n "$EXTRA_CONFIG" ]; then
+            printf '%s\n' "$EXTRA_CONFIG" > build-ci/extra.defaults
+            defaults="$defaults;build-ci/extra.defaults"
+          fi
           idf.py -B "$PWD/build-ci" -DIDF_TARGET="${{ matrix.target }}" \
             -DSDKCONFIG="$PWD/build-ci/sdkconfig" \
-            -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;devices/sdkconfig.muse;devices/sdkconfig.muse-${{ matrix.profile }}" build
+            -DSDKCONFIG_DEFAULTS="$defaults" build
       - name: Verify reviewed dependency versions
         shell: bash
         env:

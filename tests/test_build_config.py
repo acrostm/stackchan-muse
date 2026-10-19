@@ -8,11 +8,15 @@ from unittest.mock import patch
 
 
 class BuildConfigTests(unittest.TestCase):
-    def test_rebuilding_without_relay_clears_existing_destination(self):
+    def _module(self):
         path = Path(__file__).resolve().parents[1] / 'tools/build_firmware.py'
         spec = importlib.util.spec_from_file_location('build_firmware', path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        return module
+
+    def test_rebuilding_without_relay_clears_existing_destination(self):
+        module = self._module()
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / '.private').mkdir()
@@ -30,3 +34,27 @@ class BuildConfigTests(unittest.TestCase):
                     self.assertIn('CONFIG_MUSE_TLS_RELAY_HOST=' + json.dumps(expected), text)
                     self.assertEqual(text.count('CONFIG_MUSE_TLS_RELAY_HOST='), 1)
                     self.assertIn('CONFIG_UNRELATED=y', text)
+
+    def test_camera_profile_is_stackchan_only(self):
+        module = self._module()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / '.private').mkdir()
+            build = root / 'build-musestack-camera'
+            build.mkdir()
+            with patch.object(module, 'ROOT', root), patch.object(
+                    module.subprocess, 'run',
+                    return_value=SimpleNamespace(returncode=0)) as run:
+                with patch('sys.argv', ['build_firmware.py', '--with-camera']):
+                    with self.assertRaises(SystemExit) as end:
+                        module.main()
+            self.assertEqual(end.exception.code, 0)
+            overlay = root / '.private/sdkconfig-camera.defaults'
+            self.assertIn('CONFIG_MUSE_STACKCHAN_CAMERA=y', overlay.read_text())
+            command = run.call_args.args[0]
+            self.assertTrue(any(value.endswith('sdkconfig-camera.defaults') for value in command))
+
+        with patch('sys.argv', ['build_firmware.py', '--board', 'cores3', '--with-camera']), \
+                self.assertRaises(SystemExit) as end:
+            module.main()
+        self.assertEqual(end.exception.code, 2)

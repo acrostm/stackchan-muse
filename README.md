@@ -12,11 +12,11 @@ Turn a CoreS3-based StackChan into a physical terminal for your existing Muse: v
 |---|---|---|
 | Recovery | Two matching 16 MiB backups; full restore write/hash verification and factory boot passed | Full factory feature regression |
 | Firmware | StackChan baseline builds on ESP-IDF 6.0.1; 47% app-slot headroom | CoreS3 probe boots with 8 MiB PSRAM; conversation verification pending |
-| Host checks | 143 upstream tests, one skipped; 42 project tests pass locally | CI results are recorded separately |
+| Host checks | 143 upstream tests, one skipped; 51 project tests pass locally | CI results are recorded separately |
 | Chinese speech | Direct Doubao playback and a real 1.80 s voice reply passed on hardware | Longer replies and fault injection on hardware |
 | Muse | Pairing, microphone input, assistant text and spoken reply passed on hardware | Personal context, tool permissions, history and reconnect cases |
-| Expressions / head | Upstream drivers available | Real-event integration, calibration, limits and arbitration |
-| Camera / ambient perception | Experimental upstream capture is not usable | Future work; no vision claim |
+| Expressions / head | Finished reply text selects small local gestures; explicit per-unit NVS calibration, one priority arbiter, speed limiting and emergency stop are implemented | Per-unit hardware calibration and motion capture |
+| Camera / ambient perception | An explicit StackChan camera profile compiles one GC0308 still capture at a time | Real frame capture, streaming, tracking and concurrent audio/vision remain unverified |
 
 Wake words, tracking and duplex speech are not part of the current verified
 build.
@@ -62,11 +62,13 @@ idf.py -B build-stackchan -DIDF_TARGET=esp32s3 \
 
 Enter your own Muse SDK token and Doubao credentials **only** in `.private/config.json`. Initialization refuses to overwrite an existing configuration. The baseline build above has no account token and is not an account-ready binary. For the project-local setup, `python3 tools/build_firmware.py --with-token` embeds your local token; keep its outputs private.
 
+Add `--with-camera` when testing the CoreS3 GC0308 still-camera path. It remains experimental until capture is verified on the attached StackChan.
+
 TTS bridge: `python3 -m companion.tts_server` binds loopback by default. See [bridge instructions](companion/README.md); using it on-device temporarily requires a reachable host. Standalone speech remains an integration goal.
 
 ## Quality and delivery gates
 
-PRs and main pushes run repository/secret checks, project tests, upstream host tests, the UI simulator, and token-free StackChan/CoreS3/Waveshare C6 builds with partition size checks. CI never flashes hardware, calls paid providers, pairs accounts or receives personal credentials. Build bundles contain checksums and source provenance.
+PRs and main pushes run repository/secret checks, project tests, upstream host tests, the UI simulator, and token-free StackChan, StackChan-camera, CoreS3 and Waveshare C6 builds with partition size checks. CI never flashes hardware, calls paid providers, pairs accounts or receives personal credentials. Build bundles contain checksums and source provenance.
 
 Release automation requires a matching source-tree hardware report, all CI jobs, explicit human confirmation and the `firmware-release` environment. It creates a **draft** release only. This is a process gate, not automatic proof of hardware correctness. See [CI and release policy](docs/ci-release.md).
 

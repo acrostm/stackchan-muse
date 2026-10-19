@@ -62,6 +62,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--board', choices=('stackchan', 'cores3', 'waveshare-c6-18'), required=True)
+    parser.add_argument('--board', choices=('stackchan', 'stackchan-camera', 'cores3', 'waveshare-c6-18'), required=True)
     args = parser.parse_args()
     package(args.build, args.output, args.board)
