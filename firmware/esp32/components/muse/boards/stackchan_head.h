@@ -66,6 +66,10 @@ esp_err_t stackchan_head_center(void);
  * multi-step sequences. */
 void stackchan_head_stop(void);
 
+/* New speech invalidates old reply gestures without ending an independently
+ * enabled tracking lease. Physical/emergency stop still cancels everything. */
+void stackchan_head_cancel_reply(void);
+
 /* Save the current physical position as this unit's (0, 0). Centre the head
  * by hand while torque is off before calling this. */
 esp_err_t stackchan_head_calibrate_current(void);

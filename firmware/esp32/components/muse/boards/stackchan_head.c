@@ -567,10 +567,8 @@ esp_err_t stackchan_head_center(void)
     return stackchan_head_look(0, 0);
 }
 
-static void stop_locked(void)
+static void cancel_motion_locked(void)
 {
-    s_tracking_generation = 0;
-    s_tracking_deadline_us = 0;
     stackchan_motion_cancel(&s_motion);
     const int yaw = (int)s_motion.yaw;
     const int pitch = (int)s_motion.pitch;
@@ -580,6 +578,25 @@ static void stop_locked(void)
     s_last_pitch = pitch;
     s_torque_on = false;
     s_rest_since_us = esp_timer_get_time();
+}
+
+static void stop_locked(void)
+{
+    s_tracking_generation = 0;
+    s_tracking_deadline_us = 0;
+    cancel_motion_locked();
+}
+
+void stackchan_head_cancel_reply(void)
+{
+    if (!s_lock) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    ++s_generation;
+    if (!s_generation) ++s_generation;
+    if (s_motion.priority == STACKCHAN_MOVE_EXPRESSION)
+        cancel_motion_locked();
+    /* Tracking is explicitly user-enabled and is not owned by this turn. */
+    xSemaphoreGive(s_lock);
 }
 
 uint32_t stackchan_head_stop_and_generation(void)
@@ -636,15 +653,17 @@ uint32_t stackchan_head_track_begin(void)
     uint32_t generation = 0;
     if (s_present && s_calibrated && s_motion_task &&
         !(s_motion.active && s_motion.priority >= STACKCHAN_MOVE_PET)) {
+        const uint32_t previous = s_tracking_generation;
         stop_locked();
-        /* Do not reuse a predictable session token after a board restart. */
+        ++s_generation;
+        if (!s_generation) ++s_generation;
+        /* A lease token is independent of the reply gesture generation. */
         uint32_t next = esp_random();
-        if (!next || next == s_generation) {
-            next = s_generation + 1;
+        if (!next || next == previous) {
+            next = previous + 1;
             if (!next) ++next;
         }
-        s_generation = next;
-        s_tracking_generation = generation = s_generation;
+        s_tracking_generation = generation = next;
         s_tracking_sequence = 0;
         s_tracking_deadline_us = esp_timer_get_time() + 1000000;
     }
@@ -656,7 +675,7 @@ esp_err_t stackchan_head_track_stop(uint32_t generation)
 {
     if (!s_lock) return ESP_ERR_NOT_FOUND;
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    if (!generation || generation != s_generation || generation != s_tracking_generation) {
+    if (!generation || generation != s_tracking_generation) {
         xSemaphoreGive(s_lock);
         return ESP_ERR_INVALID_STATE;
     }
@@ -678,7 +697,7 @@ esp_err_t stackchan_head_track(uint32_t generation, uint32_t sequence,
     const int64_t now_us = esp_timer_get_time();
     tracking_expire_locked(now_us);
     if (!s_present || !s_calibrated || !s_motion_task ||
-        generation != s_generation || generation != s_tracking_generation ||
+        generation != s_tracking_generation ||
         sequence <= s_tracking_sequence) {
         xSemaphoreGive(s_lock);
         return ESP_ERR_INVALID_STATE;

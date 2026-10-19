@@ -205,7 +205,7 @@ static bool take_down(uint32_t *turn, bool *wake)
 #if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
             /* Invalidate the old reply/notification gesture at interruption,
              * before any audio drain or transition into the next recording. */
-            stackchan_head_stop();
+            stackchan_head_cancel_reply();
 #endif
             if (turn) *turn = ev.turn ? ev.turn : muse_ptt_press(esp_timer_get_time());
             if (wake) *wake = ev.wake;
@@ -1068,8 +1068,8 @@ static void voice_task(void *arg)
             continue;
         }
 #if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
-        /* A new talk turn cancels any old reply gesture before recording. */
-        stackchan_head_stop();
+        /* A new talk turn cancels its old reply gesture, preserving independent tracking. */
+        stackchan_head_cancel_reply();
 #endif
         if (wake && !held_on_waking()) {
             muse_ptt_retire(turn);

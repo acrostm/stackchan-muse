@@ -109,7 +109,10 @@ int main(void) {
         self.assertIn('++s_generation', stop)
         stop_motion = function_body(head, 'static void stop_locked(void)')
         self.assertNotIn('servo_write_raw', stop_motion)
-        self.assertIn('servo_torque(', stop_motion)
+        self.assertIn('cancel_motion_locked()', stop_motion)
+        torque_stop = function_body(head, 'static void cancel_motion_locked(void)')
+        self.assertNotIn('servo_write_raw', torque_stop)
+        self.assertIn('servo_torque(', torque_stop)
 
     def test_expression_and_pet_steps_use_the_sequence_token(self):
         expression = (BOARDS / 'stackchan_expression.c').read_text()
@@ -126,9 +129,9 @@ int main(void) {
             ROOT / 'firmware/esp32/components/muse/muse_voice.c'
         ).read_text()
         self.assertIn('#include "boards/stackchan_head.h"', voice)
-        self.assertIn('stackchan_head_stop();', voice)
+        self.assertIn('stackchan_head_cancel_reply();', voice)
         interrupted = function_body(voice, 'static bool take_down(')
-        self.assertIn('stackchan_head_stop();', interrupted)
+        self.assertIn('stackchan_head_cancel_reply();', interrupted)
 
     def test_face_stop_reaches_the_voice_task(self):
         app = (ROOT / 'firmware/esp32/components/muse/muse_app.c').read_text()

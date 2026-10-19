@@ -13,7 +13,9 @@ class TrackingDeviceTests(unittest.TestCase):
     def test_production_tracking_lease_and_parser(self):
         head = (BOARDS / 'stackchan_head.c').read_text()
         signatures = [
+            'static void cancel_motion_locked(void)\n{',
             'static void stop_locked(void)\n{',
+            'void stackchan_head_cancel_reply(',
             'static void tracking_expire_locked(',
             'uint32_t stackchan_head_track_begin(',
             'esp_err_t stackchan_head_track_stop(',
@@ -59,15 +61,24 @@ int main(void) {
     assert(stackchan_head_track_begin() == 0);
     s_calibrated = true;
     uint32_t token = stackchan_head_track_begin();
-    assert(token && token == s_generation);
+    assert(token && token == s_tracking_generation);
     assert(stackchan_head_track(token, 1, 100, 100, 500) == ESP_OK);
     assert(s_motion.active && s_motion.priority == STACKCHAN_MOVE_TRACKING);
     assert(s_tracking_deadline_us == 500000);
+    uint32_t old_reply_generation = s_generation;
+    stackchan_head_cancel_reply();
+    assert(s_generation != old_reply_generation);
+    assert(s_tracking_generation == token && s_motion.active);
+    assert(stackchan_head_move_for_generation(0, 0, 300,
+        STACKCHAN_MOVE_EXPRESSION, 0, old_reply_generation) == ESP_ERR_INVALID_STATE);
+    assert(stackchan_head_track(token, 2, 100, 100, 500) == ESP_OK);
     assert(stackchan_head_track(token, 1, 200, 100, 500) == ESP_ERR_INVALID_STATE);
-    assert(stackchan_head_track(token, 2, 601, 100, 500) == ESP_ERR_INVALID_ARG);
+    assert(stackchan_head_track(token, 3, 601, 100, 500) == ESP_ERR_INVALID_ARG);
     assert(s_motion.target_yaw == 100);
     now = 500000;
+    const uint32_t before_expiry = s_generation;
     tracking_expire_locked(now);
+    assert(s_generation != before_expiry);
     assert(!s_motion.active && !s_tracking_generation && s_generation != token);
     assert(stackchan_head_track(token, 2, 200, 100, 500) == ESP_ERR_INVALID_STATE);
     token = stackchan_head_track_begin();
