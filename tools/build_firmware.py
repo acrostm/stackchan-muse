@@ -22,12 +22,17 @@ def main():
     parser.add_argument("--online", action="store_true",
                         help="Resolve components online instead of the verified local cache")
     parser.add_argument("--with-local-tts", action="store_true", help="Configure private authenticated Chinese TTS bridge")
+    parser.add_argument('--with-camera', action='store_true',
+                        help='Enable the experimental CoreS3 GC0308 still camera')
     args = parser.parse_args()
+    if args.with_camera and args.board != 'stackchan':
+        parser.error('--with-camera is only supported for --board stackchan')
     idf = ROOT / '.toolchains/esp-idf'
     tools = ROOT / '.toolchains/tools'
     python_env = tools / 'python_env/idf6.0_py3.14_env'
     compiler = tools / 'tools/xtensa-esp-elf/esp-15.2.0_20251204/xtensa-esp-elf/bin'
     suffix = ('-' + args.board if args.board != 'stackchan' else '')
+    suffix += '-camera' if args.with_camera else ''
     suffix += '-text' if args.text_replies else ''
     suffix += '-private' if args.with_token or args.with_local_tts else ''
     build = ROOT / ('build-musestack' + suffix)
@@ -72,6 +77,8 @@ def main():
         local_defaults[2] = 'CONFIG_MUSE_LOCAL_TTS_TOKEN=' + json.dumps(token)
     if args.text_replies:
         local_defaults.append('CONFIG_MUSE_TEXT_REPLIES=y')
+    if args.with_camera:
+        local_defaults.append('CONFIG_MUSE_STACKCHAN_CAMERA=y')
     if local_defaults:
         overlay = ROOT / ('.private/sdkconfig' + suffix + '.defaults')
         overlay.touch(mode=0o600, exist_ok=True)

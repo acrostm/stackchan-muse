@@ -8,7 +8,7 @@
     "restore_write_test": "passed: full 16 MiB write verified; factory stack-chan 1.5.1 boot without panic",
     "stackchan_baseline_build": "passed: app 0x221000, app slot 0x400000",
     "upstream_host_tests": "passed: cloud CI 143 run, no skips; local host lacks PSA development library",
-    "project_host_tests": "43 passed locally",
+    "project_host_tests": "44 passed locally",
     "doubao_real_synthesis": "passed: MP3 24 kHz mono 64 kbps",
     "device_audio_playback": "passed: built-in MP3 and direct Doubao PCM playback confirmed on hardware",
     "muse_pairing": "passed: owner paired in phone; device reports paired and Wi-Fi connected",

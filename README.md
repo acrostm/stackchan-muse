@@ -12,7 +12,7 @@ Turn a CoreS3-based StackChan into a physical terminal for your existing Muse: v
 |---|---|---|
 | Recovery | Two matching 16 MiB backups; full restore write/hash verification and factory boot passed | Full factory feature regression |
 | Firmware | StackChan baseline builds on ESP-IDF 6.0.1; 47% app-slot headroom | CoreS3 probe boots with 8 MiB PSRAM; conversation verification pending |
-| Host checks | 143 upstream tests, one skipped; 43 project tests pass locally | CI results are recorded separately |
+| Host checks | 143 upstream tests, one skipped; 44 project tests pass locally | CI results are recorded separately |
 | Chinese speech | Direct Doubao playback and a real 1.80 s voice reply passed on hardware | Longer replies and fault injection on hardware |
 | Muse | Pairing, microphone input, assistant text and spoken reply passed on hardware | Personal context, tool permissions, history and reconnect cases |
 | Expressions / head | Finished reply text selects small local gestures; one priority arbiter, NVS calibration, speed limiting and emergency stop are implemented | Per-unit hardware calibration and motion capture |
@@ -61,6 +61,8 @@ idf.py -B build-stackchan -DIDF_TARGET=esp32s3 \
 ```
 
 Enter your own Muse SDK token and Doubao credentials **only** in `.private/config.json`. Initialization refuses to overwrite an existing configuration. The baseline build above has no account token and is not an account-ready binary. For the project-local setup, `python3 tools/build_firmware.py --with-token` embeds your local token; keep its outputs private.
+
+Add `--with-camera` when testing the CoreS3 GC0308 still-camera path. It remains experimental until capture is verified on the attached StackChan.
 
 TTS bridge: `python3 -m companion.tts_server` binds loopback by default. See [bridge instructions](companion/README.md); using it on-device temporarily requires a reachable host. Standalone speech remains an integration goal.
 
