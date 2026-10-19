@@ -6,6 +6,7 @@
 #include "esp_timer.h"
 #include "muse_link.h"
 #include "muse_notice.h"
+#include "muse_ptt_guard.h"
 #include "host/ble_gap.h"
 #include "host/ble_hs.h"
 #include "esp_heap_caps.h"
@@ -135,21 +136,15 @@ const char *sw_ble_state(void)
     return ble_gap_adv_active() ? "advertising" : "idle";
 }
 
-/* Only tiny state copies inside this cross-core lock; no IO or allocation. */
-static portMUX_TYPE capture_lock = portMUX_INITIALIZER_UNLOCKED;
-static sw_ptt_t capture;
 void sw_capture_press(void) {
-    int64_t now = esp_timer_get_time();
-    portENTER_CRITICAL(&capture_lock); sw_ptt_press(&capture, now); portEXIT_CRITICAL(&capture_lock);
+    muse_ptt_press(esp_timer_get_time());
 }
 void sw_capture_release(void) {
-    int64_t now = esp_timer_get_time();
-    portENTER_CRITICAL(&capture_lock); sw_ptt_release(&capture, now); portEXIT_CRITICAL(&capture_lock);
+    muse_ptt_release(esp_timer_get_time());
 }
 void sw_capture_cancel(void) {
-    portENTER_CRITICAL(&capture_lock); sw_ptt_cancel(&capture); portEXIT_CRITICAL(&capture_lock);
+    muse_ptt_cancel();
 }
 sw_ptt_result_t sw_capture_result(void) {
-    portENTER_CRITICAL(&capture_lock); sw_ptt_result_t result = sw_ptt_result(&capture); portEXIT_CRITICAL(&capture_lock);
-    return result;
+    return (sw_ptt_result_t)muse_ptt_result();
 }

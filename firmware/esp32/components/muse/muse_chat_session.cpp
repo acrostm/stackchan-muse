@@ -73,6 +73,7 @@ extern "C" {
 #include "muse_link.h"
 #include "muse_notice.h"
 #include "muse_settings.h"
+#include "muse_turn_filter.h"
 #include "muse_tts_json.h"
 #include "muse_wifi.h"
 #include "sw_runtime.h"
@@ -268,6 +269,7 @@ enum mark_t : uint8_t { M_RELEASE, M_SENT, M_ACK, M_TEXT, M_DONE, M_TTS, M_MP3, 
 static const char *const MARK_NAMES[M_COUNT] = { "release", "sent", "ack", "text", "done", "tts", "mp3", "audio" };
 static int64_t s_marks[M_COUNT];
 static char s_reply_shown[EV_TEXT];   /* the pre-speech caption last sent */
+static muse_turn_filter_t s_ignored;
 
 static void mark(mark_t m);
 static bool open_note(void);
@@ -966,6 +968,22 @@ static void turn_reset_streams(void)
     }
 }
 
+static void remember_ignored_id(const char *id)
+{
+    muse_turn_filter_remember(&s_ignored, id);
+}
+
+/* A cancelled/failed turn can still receive terminal events from the
+ * subscription. Treat its user and assistant IDs as permanently not
+ * notification candidates for the lifetime of this connection. */
+static void remember_incomplete_turn(void)
+{
+    if (s_turn.phase == P_IDLE) return;
+    remember_ignored_id(s_turn.user_ids[0]);
+    remember_ignored_id(s_turn.user_ids[1]);
+    for (int i = 0; i < s_turn.nmsgs; ++i) remember_ignored_id(s_turn.msgs[i].id);
+}
+
 static void turn_finish(void)
 {
     muse_local_tts_cancel();
@@ -987,6 +1005,7 @@ static void turn_fail(const char *why)
         muse_hatch_console("error", why, nullptr);
     }
     emit(MUSE_HATCH_EV_ERROR, why);
+    remember_incomplete_turn();
     turn_finish();
 }
 
@@ -1008,6 +1027,7 @@ static bool turn_start(uint32_t gen, bool text)
         if (s_turn.text) {
             turn_fail("INTERRUPTED");
         } else {
+            remember_incomplete_turn();
             turn_finish();
         }
     }
@@ -1434,6 +1454,25 @@ static const char *msg_id(cJSON *payload, cJSON *event)
     return id && id[0] ? id : nullptr;
 }
 
+static bool ignored_value(const char *id)
+{
+    return muse_turn_filter_contains(&s_ignored, id);
+}
+
+static bool ignored_event(cJSON *payload, cJSON *line)
+{
+    const char *keys[] = {
+        "message_id", "reply_to_message_id", "parent_message_id", "id",
+    };
+    for (const char *key : keys) {
+        if (ignored_value(cJSON_GetStringValue(cJSON_GetObjectItem(payload, key))) ||
+            ignored_value(cJSON_GetStringValue(cJSON_GetObjectItem(line, key)))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static const char *notification_text(cJSON *payload)
 {
     static const char *const keys[] = {
@@ -1463,6 +1502,7 @@ static void on_event(cJSON *line)
     const char *event = cJSON_GetStringValue(cJSON_GetObjectItem(line, "event")) ?: "";
     cJSON *payload = cJSON_GetObjectItem(line, "payload");
     if (s_turn.phase != P_WAIT_REPLY) {
+        if (ignored_event(payload, line)) return;
         bool final = !strcmp(event, "delta.message_done") ||
                      !strcmp(event, "message.assistant") ||
                      strstr(event, "notification") || strstr(event, "task.completed") ||
@@ -2109,6 +2149,7 @@ static void handle(const cmd_t &cmd)
     case CMD_CANCEL:
         if (cmd.gen == s_turn.gen && !s_turn.text && s_turn.phase != P_IDLE) {
             ESP_LOGI(TAG, "turn cancelled");
+            remember_incomplete_turn();
             turn_finish();
         }
         break;

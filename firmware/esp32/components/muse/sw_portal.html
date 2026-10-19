@@ -119,16 +119,11 @@ function previewError(message){
  else if(/provider [1-9]/.test(message))help='豆包已返回业务错误，请按该错误码检查凭据和音色权限。';
  return help?help+'（'+message+'）':message;
 }
-function wav(pcm){
- const b=new ArrayBuffer(44),v=new DataView(b),str=(at,s)=>{for(let i=0;i<s.length;i++)v.setUint8(at+i,s.charCodeAt(i));};
- str(0,'RIFF');v.setUint32(4,pcm.byteLength+36,true);str(8,'WAVE');str(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,16000,true);v.setUint32(28,32000,true);v.setUint16(32,2,true);v.setUint16(34,16,true);str(36,'data');v.setUint32(40,pcm.byteLength,true);
- return new Blob([b,pcm],{type:'audio/wav'});
-}
 $('#preview').addEventListener('click',async()=>{
  if(busy)return;setBusy(true);const audio=$('#audio');audio.pause();$('#voice-status').textContent='正在合成试听…';
  try{const data=Object.fromEntries(new FormData($('#form'))),r=await voiceJob('/preview',{speaker:current,api_key:data.api_key,app_id:data.app_id,access_key:data.access_key});
-  const pcm=await r.arrayBuffer();if(!pcm.byteLength||pcm.byteLength>512*1024||pcm.byteLength%2)throw Error('试听音频无效');
-  if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(wav(pcm));audio.src=objectUrl;audio.hidden=false;
+  const blob=await r.blob();if(blob.size<45||blob.size>512*1024+44)throw Error('试听音频无效');
+  if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(blob);audio.src=objectUrl;audio.hidden=false;
   $('#voice-status').textContent='试听已生成，点击播放器即可播放。';try{await audio.play();}catch{}
  }catch(e){$('#voice-status').textContent=previewError(e.message);}finally{setBusy(false);}
 });
