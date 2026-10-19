@@ -31,7 +31,7 @@ def main():
     project = ROOT / 'firmware/esp32'
     defaults = [project / 'sdkconfig.defaults', project / 'devices/sdkconfig.muse',
                 project / ('devices/sdkconfig.muse-m5stack-' + args.board)]
-    local_defaults = []
+    local_defaults = ['CONFIG_MUSE_TLS_RELAY_HOST=""']
     if args.with_token:
         config = json.loads((ROOT / '.private/config.json').read_text())
         token = config.get('muse_sdk_token')
@@ -43,7 +43,7 @@ def main():
         address = ipaddress.ip_address(config.get('network', {}).get('tls_relay_host', ''))
         if address.version != 4 or not address.is_private or address.is_loopback or address.is_unspecified:
             parser.error('TLS relay must be one explicit private LAN IPv4 address')
-        local_defaults.append('CONFIG_MUSE_TLS_RELAY_HOST=' + json.dumps(str(address)))
+        local_defaults[0] = 'CONFIG_MUSE_TLS_RELAY_HOST=' + json.dumps(str(address))
     if args.text_replies:
         local_defaults.append('CONFIG_MUSE_TEXT_REPLIES=y')
     if local_defaults:
