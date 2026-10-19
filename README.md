@@ -12,7 +12,7 @@ Turn a CoreS3-based StackChan into a physical terminal for your existing Muse: v
 |---|---|---|
 | Recovery | Two complete 16 MiB factory reads match | Restore write test |
 | Firmware | StackChan baseline builds on ESP-IDF 6.0.1; 47% app-slot headroom | Account-enabled probe and hardware verification |
-| Host checks | 143 upstream tests, one skipped; 24 project tests pass locally | CI results are recorded separately |
+| Host checks | 143 upstream tests, one skipped; 27 project tests pass locally | CI results are recorded separately |
 | Chinese speech | Real Doubao synthesis returns 24 kHz mono MP3 | Device speaker, cancellation and timeout handling |
 | Muse | Official SDK and pairing paths retained | Pairing, voice round trip, personal context and tools |
 | Expressions / head | Upstream drivers available | Real-event integration, calibration, limits and arbitration |
@@ -61,3 +61,5 @@ Identify the board and servos, keep a verified factory backup and calibrate befo
 ## Contributing and license
 
 Read [CONTRIBUTING](CONTRIBUTING.md), [SECURITY](SECURITY.md), [recovery](docs/recovery.md) and [NOTICE](NOTICE). Code uses [Apache-2.0](LICENSE), subject to original third-party licenses. The upstream Jollybot artwork has separate terms and is **not** relicensed here. This is an independent personal project, not an official Meta or M5Stack product.
+
+Proactive messages and scheduled-task announcements are tracked in [the notification scope](docs/proactive-messages.md). Background delivery and device playback are not implemented or verified yet.

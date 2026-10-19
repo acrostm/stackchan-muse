@@ -7,8 +7,8 @@
     "factory_backup": "passed: two full reads match SHA-256",
     "restore_write_test": "not_run",
     "stackchan_baseline_build": "passed: app 0x221000, app slot 0x400000",
-    "upstream_host_tests": "143 run, 1 skipped: host PSA Crypto development library unavailable",
-    "project_host_tests": "18 passed",
+    "upstream_host_tests": "passed: cloud CI 143 run, no skips; local host lacks PSA development library",
+    "project_host_tests": "27 passed locally",
     "doubao_real_synthesis": "passed: MP3 24 kHz mono 64 kbps",
     "device_audio_playback": "not_run",
     "muse_pairing": "not_run",
@@ -21,6 +21,10 @@
     "touch_cancellation": "not_hardware_verified",
     "camera": "upstream_capture_not_usable",
     "twenty_turn_acceptance": "not_run",
-    "two_hour_stability": "not_run"
+    "two_hour_stability": "not_run",
+    "cores3_account_probe_build": "passed: token-enabled, text replies, no head driver; not flashed",
+    "proactive_message_delivery": "unknown: long-lived subscription exists, server event coverage not yet observed",
+    "proactive_message_playback": "not_implemented",
+    "tts_utf8_encoding": "passed: Chinese/emoji boundaries and JSON escaping; CoreS3 and StackChan builds passed"
   }
 }

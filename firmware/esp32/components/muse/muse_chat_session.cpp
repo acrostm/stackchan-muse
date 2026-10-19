@@ -71,6 +71,7 @@ extern "C" {
 #include "muse_account_api.h"
 #include "muse_link.h"
 #include "muse_settings.h"
+#include "muse_tts_json.h"
 #include "muse_wifi.h"
 }
 #include "muse_chat_priv.h"
@@ -1626,28 +1627,15 @@ static bool local_tts_fetch(msg_t &m, int idx, const char *text)
         return false;
     }
     /* JSON-escape the text, capped so one reply stays a short utterance. */
-    size_t cap = LOCAL_TTS_MAX_CHARS * 2 + 16;
+    size_t cap = LOCAL_TTS_MAX_CHARS * 4 + 16;
     char *json = (char *)psram_alloc(cap);
     if (!json) {
         return false;
     }
-    size_t n = 0;
-    n += snprintf(json + n, cap - n, "{\"text\":\"");
-    size_t chars = 0;
-    for (const char *p = text; *p && chars < LOCAL_TTS_MAX_CHARS && n + 3 < cap; p++) {
-        char c = *p;
-        if (c == '"' || c == '\\') {
-            json[n++] = '\\';
-            json[n++] = c;
-        } else if ((unsigned char)c < 0x20) {
-            json[n++] = ' ';
-        } else {
-            json[n++] = c;
-        }
-        chars++;
+    if (!muse_tts_json(text, LOCAL_TTS_MAX_CHARS, json, cap, nullptr)) {
+        heap_caps_free(json);
+        return false;
     }
-    n += snprintf(json + n, cap - n, "\"}");
-    json[n] = '\0';
 
     bool ok = local_tts_try(m, idx, url, json);
     if (!ok) {

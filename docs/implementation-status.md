@@ -81,3 +81,13 @@ StackChan 基线完整编译通过：签名 app 大小 `0x221000`，4 MiB app �
 
 豆包官方接口参考：https://docs.volcengine.com/docs/DoubaoVoice/unidirectional-streaming-text-to-speech-http?lang=zh
 当前新接口使用 X-Api-Key；用户凭据若为 App ID / Access Token，需要核实对应旧接口，不能混用。
+
+## 主线恢复与主动播报需求
+
+CI 修复 PR #3 的最终提交 `5fc0e90d9e83ecfb467edd42f402ab1125ec20e1`：云端两种板型、打包、项目测试、143 项上游测试（零跳过）及 UI 模拟器均通过，官方 Codex 原生结果 completed / no findings。main 保持保护；首次门禁引导的手动状态发布被自动审批拒绝，未执行，PR 尚未合并。
+
+无舵机的 CoreS3 账号探针已成功编译，静态配置确认使用 CoreS3 驱动、text replies，未启用 StackChan 头部驱动及不可逆 eFuse 选项。账号产物只留本机；未刷机、未配对、未宣称语音或主动消息已可用。
+
+已将中文 TTS 的 700 字节截断改为最多 700 个完整 UTF-8 码点，并验证 JSON 转义、非法编码及容量不足拒绝，27 项项目测试通过。CoreS3 与 StackChan 重新编译均通过，StackChan app 为 0x221000、分区余量 47%。同步 HTTP 取消和音频溢出等剩余问题仍需处理。
+
+新增主动消息、计划任务结果的提示音及朗读需求，详见 `proactive-messages.md`。源码已确认订阅流长期存在，但闲置状态直接过滤事件；服务端投递范围必须配对后逐类实测，尚未实现后台收件箱或通知播报。
