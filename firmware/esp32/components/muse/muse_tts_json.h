@@ -7,6 +7,10 @@
 extern "C" {
 #endif
 
+/* Append only complete UTF-8 codepoints. False means the input did not fit or
+ * was invalid: caller must stop accumulating later deltas to retain a prefix. */
+bool muse_utf8_append(char *output, size_t capacity, const char *text);
+
 /* Encode a bounded UTF-8 prefix as {"text":"..."}. Never split a codepoint.
  * Controls become spaces. Invalid input or insufficient capacity fails closed;
  * output is empty and written is zero. Capacity includes the terminating NUL. */

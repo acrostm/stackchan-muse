@@ -17,6 +17,24 @@ static size_t utf8_width(const unsigned char *p)
     return width;
 }
 
+bool muse_utf8_append(char *output, size_t capacity, const char *text)
+{
+    if (!output || !capacity || !text) return false;
+    size_t used = 0;
+    while (used < capacity && output[used]) ++used;
+    if (used == capacity) return false;
+    const unsigned char *p = (const unsigned char *)text;
+    while (*p) {
+        size_t width = utf8_width(p);
+        if (!width || width > capacity - used - 1) return false;
+        memcpy(output + used, p, width);
+        used += width;
+        output[used] = '\0';
+        p += width;
+    }
+    return true;
+}
+
 bool muse_tts_json(const char *text, size_t max_chars, char *output,
                    size_t capacity, size_t *written)
 {
