@@ -4,16 +4,16 @@
 
 Turn a CoreS3-based StackChan into a physical terminal for your existing Muse: voice conversation, spoken Chinese replies, expressions and controlled head motion. Muse remains the agent; this project does not substitute another model.
 
-**Development snapshot, not a ready-to-flash release.** No custom firmware has been flashed. See [capability evidence](docs/capabilities.json) and [implementation notes](docs/implementation-status.md).
+**Development snapshot, not a ready-to-flash release.** A CoreS3 text-reply probe is flashed and boots; built-in speaker playback is confirmed by the owner. Muse pairing and the conversation loop are still pending. See [capability evidence](docs/capabilities.json) and [implementation notes](docs/implementation-status.md).
 
 ## Status
 
 | Area | Evidence | Remaining work |
 |---|---|---|
-| Recovery | Two complete 16 MiB factory reads match | Restore write test |
-| Firmware | StackChan baseline builds on ESP-IDF 6.0.1; 47% app-slot headroom | Account-enabled probe and hardware verification |
+| Recovery | Two matching 16 MiB backups; full restore write/hash verification and factory boot passed | Full factory feature regression |
+| Firmware | StackChan baseline builds on ESP-IDF 6.0.1; 47% app-slot headroom | CoreS3 probe boots with 8 MiB PSRAM; conversation verification pending |
 | Host checks | 143 upstream tests, one skipped; 27 project tests pass locally | CI results are recorded separately |
-| Chinese speech | Real Doubao synthesis returns 24 kHz mono MP3 | Device speaker, cancellation and timeout handling |
+| Chinese speech | Real Doubao synthesis returns 24 kHz mono MP3 | Built-in MP3 speaker test passed; Doubao device playback, cancellation and timeout handling pending |
 | Muse | Official SDK and pairing paths retained | Pairing, voice round trip, personal context and tools |
 | Expressions / head | Upstream drivers available | Real-event integration, calibration, limits and arbitration |
 | Camera / ambient perception | Experimental upstream capture is not usable | Future work; no vision claim |
