@@ -71,6 +71,8 @@ typedef struct {
     void (*wifi_nap)(bool nap);                   /* screen off a while: leave Wi-Fi until false */
     int (*wifi_saved)(muse_wifi_saved_t *out, int max);   /* most recently joined first */
     void (*wifi_forget)(const char *ssid);        /* one saved network; empty forgets them all */
+    const char *(*sdk_token)(void);
+    bool (*sdk_token_set)(const char *token);     /* empty restores the build token */
 } muse_link_ops_t;
 
 void muse_link_register(const muse_link_ops_t *ops);
@@ -96,3 +98,5 @@ int64_t muse_link_req_open(const char *verb, const char *path, const char *const
 bool muse_link_req_send(int64_t id, const void *data, size_t len, bool end_body, int wait_ms);
 void muse_link_req_cancel(int64_t id);
 void muse_link_ble_apply(void);
+const char *muse_link_sdk_token(void);
+bool muse_link_sdk_token_set(const char *token);

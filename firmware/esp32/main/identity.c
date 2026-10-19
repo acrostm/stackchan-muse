@@ -22,6 +22,7 @@
 
 #include "esp_mac.h"
 #include "esp_log.h"
+#include "config_store.h"
 
 static const char *TAG = "link.identity";
 
@@ -38,6 +39,7 @@ static char s_node_id[32];
 static char s_ble_name[32];
 static char s_mac[18];
 static char s_device_id[48];
+static char s_sdk_token[64];
 
 void identity_init(void) {
     uint8_t mac[6] = {0};
@@ -51,6 +53,10 @@ void identity_init(void) {
     snprintf(s_mac, sizeof(s_mac), "%02x:%02x:%02x:%02x:%02x:%02x",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     snprintf(s_device_id, sizeof(s_device_id), "hatch-link:%s", s_mac);
+    if (!config_get_str("sdk_token", s_sdk_token, sizeof(s_sdk_token)) ||
+        !s_sdk_token[0]) {
+        snprintf(s_sdk_token, sizeof(s_sdk_token), "%s", CONFIG_GADGET_SDK_TOKEN);
+    }
     ESP_LOGI(TAG, "node_id=%s ble_name=%s", s_node_id, s_ble_name);
 }
 
@@ -59,5 +65,21 @@ const char *identity_ble_name(void) { return s_ble_name; }
 const char *identity_mac(void) { return s_mac; }
 const char *identity_device_id(void) { return s_device_id; }
 const char *identity_sdk_token(void) {
-    return CONFIG_GADGET_SDK_TOKEN[0] ? CONFIG_GADGET_SDK_TOKEN : NULL;
+    return s_sdk_token[0] ? s_sdk_token : NULL;
+}
+
+bool identity_set_sdk_token(const char *token) {
+    if (!token) token = "";
+    size_t n = strlen(token);
+    if (n >= sizeof(s_sdk_token)) return false;
+    if (n && (n != 48 || strncmp(token, "mgst_", 5))) return false;
+    for (size_t i = 5; i < n; ++i) {
+        if (!isalnum((unsigned char)token[i]) && token[i] != '_' && token[i] != '-')
+            return false;
+    }
+    bool saved = n ? config_set_str("sdk_token", token) : config_erase_key("sdk_token");
+    if (!saved) return false;
+    if (n) snprintf(s_sdk_token, sizeof(s_sdk_token), "%s", token);
+    else snprintf(s_sdk_token, sizeof(s_sdk_token), "%s", CONFIG_GADGET_SDK_TOKEN);
+    return true;
 }

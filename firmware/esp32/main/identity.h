@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 
 // Both buffers must be at least 32 bytes. XXXXXX = last 3 WiFi STA MAC octets.
@@ -27,5 +28,7 @@ const char *identity_node_id(void);
 const char *identity_ble_name(void);
 const char *identity_mac(void);
 const char *identity_device_id(void);
-// The maker's SDK token (CONFIG_GADGET_SDK_TOKEN), or NULL when the build has none.
+// Persisted setup token overrides the build-time maker token.
 const char *identity_sdk_token(void);
+// Empty clears the persisted token and restores the build-time value.
+bool identity_set_sdk_token(const char *token);

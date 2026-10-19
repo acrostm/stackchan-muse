@@ -64,6 +64,7 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
         source = r'''
 #include <assert.h>
 #include "muse_tls_route.h"
+bool sw_proxy_muse_enabled(void) { return false; }
 int main(void) {
  char url[128];
  assert(muse_tls_route_api("https://api.muse.ai/fetch_vms",url,sizeof(url)));
@@ -83,4 +84,25 @@ int main(void) {
                             '-DCONFIG_MUSE_TLS_RELAY_HOST="192.168.1.5"',
                             '-I', str(Path(__file__).resolve().parents[1] / 'firmware/esp32/components/muse'),
                             str(path / 'test.c'), '-o', str(path / 'test')], check=True, capture_output=True)
+            subprocess.run([str(path / 'test')], check=True)
+
+    def test_socks_route_disables_legacy_relay(self):
+        source = r'''
+#include <assert.h>
+#include "muse_tls_route.h"
+bool sw_proxy_muse_enabled(void) { return true; }
+int main(void) {
+    char url[128];
+    assert(!muse_tls_route_api("https://api.muse.ai/fetch_vms", url, sizeof(url)));
+    assert(!muse_tls_route_noise("hatch.metaaivm.com"));
+}
+'''
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            (path / 'test.c').write_text(source)
+            subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                            '-DCONFIG_MUSE_TLS_RELAY_HOST="192.168.1.5"',
+                            '-I', str(Path(__file__).resolve().parents[1] / 'firmware/esp32/components/muse'),
+                            str(path / 'test.c'), '-o', str(path / 'test')],
+                           check=True, capture_output=True)
             subprocess.run([str(path / 'test')], check=True)

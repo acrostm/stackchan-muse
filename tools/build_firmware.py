@@ -6,6 +6,7 @@ import ipaddress
 import os
 from pathlib import Path
 import subprocess
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,6 +19,9 @@ def main():
     parser.add_argument('--text-replies', action='store_true',
                         help='Use the verified upstream text path for capability probing')
     parser.add_argument("--with-relay", action="store_true", help="Use private network.tls_relay_host; TLS verification stays enabled")
+    parser.add_argument("--online", action="store_true",
+                        help="Resolve components online instead of the verified local cache")
+    parser.add_argument("--with-local-tts", action="store_true", help="Configure private authenticated Chinese TTS bridge")
     args = parser.parse_args()
     idf = ROOT / '.toolchains/esp-idf'
     tools = ROOT / '.toolchains/tools'
@@ -25,13 +29,15 @@ def main():
     compiler = tools / 'tools/xtensa-esp-elf/esp-15.2.0_20251204/xtensa-esp-elf/bin'
     suffix = ('-' + args.board if args.board != 'stackchan' else '')
     suffix += '-text' if args.text_replies else ''
-    suffix += '-private' if args.with_token else ''
+    suffix += '-private' if args.with_token or args.with_local_tts else ''
     build = ROOT / ('build-musestack' + suffix)
     build.mkdir(exist_ok=True, mode=0o700)
     project = ROOT / 'firmware/esp32'
     defaults = [project / 'sdkconfig.defaults', project / 'devices/sdkconfig.muse',
                 project / ('devices/sdkconfig.muse-m5stack-' + args.board)]
-    local_defaults = ['CONFIG_MUSE_TLS_RELAY_HOST=""']
+    local_defaults = ['CONFIG_MUSE_TLS_RELAY_HOST=""',
+                      'CONFIG_MUSE_LOCAL_TTS_URL=""', 'CONFIG_MUSE_LOCAL_TTS_TOKEN=""',
+                      'CONFIG_MUSE_LOCAL_TTS_FALLBACK_URL=""', 'CONFIG_HOMEHUB_OTA_ENABLED=n']
     if args.with_token:
         config = json.loads((ROOT / '.private/config.json').read_text())
         token = config.get('muse_sdk_token')
@@ -44,6 +50,26 @@ def main():
         if address.version != 4 or not address.is_private or address.is_loopback or address.is_unspecified:
             parser.error('TLS relay must be one explicit private LAN IPv4 address')
         local_defaults[0] = 'CONFIG_MUSE_TLS_RELAY_HOST=' + json.dumps(str(address))
+    if args.with_local_tts:
+        config = json.loads((ROOT / '.private/config.json').read_text())
+        network = config.get('network', {})
+        url = network.get('tts_url') or ('http://' + network.get('tls_relay_host', '') + ':8765/tts')
+        parsed = urlsplit(url)
+        try:
+            address = ipaddress.ip_address(parsed.hostname or '')
+            port = parsed.port
+        except ValueError:
+            parser.error('TTS bridge requires a valid private IPv4 URL')
+        if (parsed.scheme not in ('http', 'https') or address.version != 4 or
+                not address.is_private or address.is_loopback or address.is_unspecified or
+                address.is_multicast or parsed.username or parsed.password or parsed.query or
+                parsed.fragment or parsed.path != '/tts' or not port or not 1 <= port <= 65535):
+            parser.error('TTS bridge requires one explicit private LAN IPv4 /tts endpoint')
+        token = config.get('tts_proxy_token', '')
+        if not isinstance(token, str) or len(token) < 24 or len(token) > 255 or not all(33 <= ord(c) <= 126 for c in token):
+            parser.error('Invalid or missing private TTS bridge token')
+        local_defaults[1] = 'CONFIG_MUSE_LOCAL_TTS_URL=' + json.dumps(url)
+        local_defaults[2] = 'CONFIG_MUSE_LOCAL_TTS_TOKEN=' + json.dumps(token)
     if args.text_replies:
         local_defaults.append('CONFIG_MUSE_TEXT_REPLIES=y')
     if local_defaults:
@@ -61,8 +87,9 @@ def main():
             generated.write_text('\n'.join(lines + local_defaults) + '\n')
             generated.chmod(0o600)
     env = dict(os.environ)
-    for key in ('HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'https_proxy', 'http_proxy', 'all_proxy'):
-        env.pop(key, None)
+    if not args.online:
+        for key in ('HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'https_proxy', 'http_proxy', 'all_proxy'):
+            env.pop(key, None)
     env.update(ESP_IDF_VERSION='6.0.1', IDF_PATH=str(idf), IDF_TOOLS_PATH=str(tools),
                IDF_PYTHON_ENV_PATH=str(python_env))
     env['PATH'] = os.pathsep.join([str(python_env / 'bin'), str(compiler),

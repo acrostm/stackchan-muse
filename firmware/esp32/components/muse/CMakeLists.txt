@@ -23,6 +23,15 @@ set(srcs)
 set(embed)
 if(CONFIG_MUSE_ENABLED)
     list(APPEND srcs
+        "sw_core.c"
+        "sw_proxy_core.c"
+        "sw_proxy.c"
+        "sw_sign.c"
+        "sw_http_body.c"
+        "sw_voice.c"
+        "sw_runtime.c"
+        "sw_tts.c"
+        "sw_portal.c"
         "muse_app.c"
         "muse_board.c"
         "muse_console.c"
@@ -37,17 +46,22 @@ if(CONFIG_MUSE_ENABLED)
         "muse_adpcm.c"
         "muse_settings.c"
         "muse_settings_ui.c"
+        "muse_ptt_guard.c"
+        "muse_notice_core.c"
+        "muse_notice.c"
+        "muse_turn_filter.c"
         "muse_text.c"
         "muse_keypad.c"
         "muse_lv_mem.c"
         "muse_link.c"
         "muse_ble.c")
     if(CONFIG_MUSE_HATCH)
-        list(APPEND srcs "muse_chat.c" "muse_account_api.c" "muse_chat_session.cpp" "muse_tts_json.c")
+        list(APPEND srcs "muse_chat.c" "muse_account_api.c" "muse_chat_session.cpp" "muse_tts_json.c" "muse_local_tts.cpp")
         list(APPEND embed "test_reply.mp3")   # muse_hatch_mp3_selftest
     else()
         list(APPEND srcs "muse_chat_link.c")   # text replies over Link's session
     endif()
+    list(APPEND embed "sw_portal.html")
     list(APPEND srcs "muse_chat_text.c")
     # Your own character (tools/muse/AVATAR_RECIPE.md) stands in for the default
     # avatar when avatar/muse_pixel.c exists here; this avatar/ is gitignored. The
@@ -87,14 +101,14 @@ if(CONFIG_MUSE_ENABLED)
 elseif(CONFIG_HOMEHUB_VOICE)
     # The Voice PE board uses just the Hatch voice session; the project's main/
     # voice_muse_chat.c stands in for the Muse settings, Wi-Fi and Link hooks.
-    list(APPEND srcs "muse_chat.c" "muse_account_api.c" "muse_chat_session.cpp" "muse_chat_text.c" "muse_text.c" "muse_tts_json.c")
+    list(APPEND srcs "muse_chat.c" "muse_account_api.c" "muse_chat_session.cpp" "muse_chat_text.c" "muse_text.c" "muse_tts_json.c" "muse_local_tts.cpp")
     list(APPEND embed "test_reply.mp3")
 endif()
 
 set(muse_priv_requires
     esp_timer esp_driver_usb_serial_jtag esp_psram nvs_flash
     bt esp-tls mbedtls esp_app_format esp_http_client
-    noise_core minimp3
+    noise_core minimp3 esp_http_server
     esp_lcd esp_adc esp_driver_i2s esp_driver_ledc esp_driver_spi esp_driver_uart esp_wifi
     esp_driver_pcnt)
 list(APPEND muse_priv_requires camera)
@@ -109,10 +123,18 @@ idf_component_register(
 )
 
 if(CONFIG_MUSE_ENABLED)
+    target_link_options(${COMPONENT_LIB} INTERFACE
+        "-Wl,--wrap=lwip_getaddrinfo"
+        "-Wl,--wrap=lwip_connect")
     # LVGL spins forever on a failed assert unless LV_ASSERT_HANDLER is set,
     # which its Kconfig can't do. Abort, so the panic handler prints a backtrace
     # and reboots. PUBLIC reaches LVGL and every file that includes lvgl.h.
-    idf_component_get_property(lvgl_lib lvgl__lvgl COMPONENT_LIB)
+    idf_build_get_property(build_components BUILD_COMPONENTS)
+    if("lvgl__lvgl" IN_LIST build_components)
+        idf_component_get_property(lvgl_lib lvgl__lvgl COMPONENT_LIB)
+    else()
+        idf_component_get_property(lvgl_lib lvgl COMPONENT_LIB)
+    endif()
     target_compile_definitions(${lvgl_lib} PUBLIC
         "LV_ASSERT_HANDLER_INCLUDE=<stdlib.h>"
         "LV_ASSERT_HANDLER=abort()\;")

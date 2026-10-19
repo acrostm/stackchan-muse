@@ -38,6 +38,7 @@
 #include "muse_ui.h"
 #include "muse_voice.h"
 #include "muse_wifi.h"
+#include "sw_runtime.h"
 
 /* Keep content in a column that stays inside a round panel (and fits a 368 px one). */
 #define LIST_W 330
@@ -77,6 +78,7 @@ static lv_obj_t *s_home_wifi, *s_home_hatch, *s_home_ble, *s_home_sound, *s_home
 
 /* Wi-Fi page. */
 static lv_obj_t *s_wifi_sw, *s_wifi_status, *s_wifi_saved, *s_wifi_scan_btn, *s_wifi_scan_lbl, *s_wifi_list;
+static lv_obj_t *s_setup_info;
 static uint32_t s_shown_scan_gen = UINT32_MAX;
 static muse_wifi_ap_t s_aps[MAX_APS];
 static muse_wifi_saved_t s_saved[MUSE_WIFI_SAVED_MAX];
@@ -645,6 +647,15 @@ static void on_wifi_other(lv_event_t *e)
     open_text("Other network", "", false, MUSE_SSID_MAX, "Network name", on_other_ssid, s_wifi);
 }
 
+#if CONFIG_SPIRAM
+static void on_browser_setup(lv_event_t *e)
+{
+    (void)e;
+    sw_portal_request();
+    muse_state_poke();
+}
+#endif
+
 /* Two taps within a few seconds forget a saved network. */
 static void on_wifi_saved(lv_event_t *e)
 {
@@ -749,12 +760,18 @@ static void build_wifi_page(lv_obj_t *tile)
     s_forget_armed = -1;
     s_wifi_sw = switch_row(list, "Wi-Fi", muse_settings_wifi_on(), on_wifi_sw);
     s_wifi_status = note(list, "");
+    s_setup_info = note(list, "");
 
     s_wifi_saved = column(list);
     s_wifi_scan_btn = button(list, LV_SYMBOL_REFRESH "  Scan for networks", COLOR_ACCENT, on_wifi_scan, &s_wifi_scan_lbl);
     s_wifi_list = column(list);
 
     row(list, LV_SYMBOL_EDIT, "Other network...", NULL, on_wifi_other, NULL);
+#if CONFIG_SPIRAM
+    row(list, LV_SYMBOL_SETTINGS, "Browser setup / proxy / voice", NULL, on_browser_setup, NULL);
+#else
+    note(list, "Browser setup and device TTS require PSRAM on this board.");
+#endif
     lv_obj_t *mac = info_row(list, "MAC address");
     uint8_t m[6];
     if (esp_read_mac(m, ESP_MAC_WIFI_STA) == ESP_OK) {
@@ -793,6 +810,19 @@ static void tick_wifi(void)
         break;
     }
     set_text(s_wifi_status, buf);
+#if CONFIG_SPIRAM
+    char setup_name[33], setup_pin[17];
+    bool setup_on;
+    sw_portal_info(setup_name, sizeof(setup_name), setup_pin, sizeof(setup_pin), &setup_on);
+    if (setup_on) {
+        lv_label_set_text_fmt(s_setup_info, "Setup hotspot: %s\nPIN: %s\nhttp://192.168.4.1", setup_name, setup_pin);
+    } else {
+        lv_label_set_text(s_setup_info, "Browser setup / proxy / Muse / Doubao");
+    }
+    memset(setup_pin, 0, sizeof(setup_pin));
+#else
+    set_text(s_setup_info, "Browser setup unavailable without PSRAM");
+#endif
     lv_obj_set_style_text_color(s_wifi_status, lv_color_hex(w.state == MUSE_WIFI_CONNECTED ? COLOR_OK :
                                                             w.state == MUSE_WIFI_FAILED ? COLOR_WARN : COLOR_DIM), 0);
 

@@ -4,7 +4,7 @@
 
 Turn a CoreS3-based StackChan into a physical terminal for your existing Muse: voice conversation, spoken Chinese replies, expressions and controlled head motion. Muse remains the agent; this project does not substitute another model.
 
-**Development snapshot, not a ready-to-flash release.** A CoreS3 text-reply probe is flashed and boots; built-in speaker playback is confirmed by the owner. Muse pairing passed; the conversation loop is blocked by the device network route. See [capability evidence](docs/capabilities.json) and [implementation notes](docs/implementation-status.md).
+**Development snapshot, not a ready-to-flash release.** A CoreS3 text-reply probe is flashed and boots; built-in speaker playback is confirmed by the owner. Muse pairing and the Chinese voice round trip pass on hardware; network access remains dependent on a working LAN proxy or relay. See [capability evidence](docs/capabilities.json) and [implementation notes](docs/implementation-status.md).
 
 ## Status
 
@@ -12,13 +12,29 @@ Turn a CoreS3-based StackChan into a physical terminal for your existing Muse: v
 |---|---|---|
 | Recovery | Two matching 16 MiB backups; full restore write/hash verification and factory boot passed | Full factory feature regression |
 | Firmware | StackChan baseline builds on ESP-IDF 6.0.1; 47% app-slot headroom | CoreS3 probe boots with 8 MiB PSRAM; conversation verification pending |
-| Host checks | 143 upstream tests, one skipped; 28 project tests pass locally | CI results are recorded separately |
-| Chinese speech | Real Doubao synthesis returns 24 kHz mono MP3 | Built-in MP3 speaker test passed; Doubao device playback, cancellation and timeout handling pending |
-| Muse | Official SDK and pairing paths retained | Pairing, voice round trip, personal context and tools |
+| Host checks | 143 upstream tests, one skipped; 42 project tests pass locally | CI results are recorded separately |
+| Chinese speech | Direct Doubao playback and a real 1.80 s voice reply passed on hardware | Longer replies and fault injection on hardware |
+| Muse | Pairing, microphone input, assistant text and spoken reply passed on hardware | Personal context, tool permissions, history and reconnect cases |
 | Expressions / head | Upstream drivers available | Real-event integration, calibration, limits and arbitration |
 | Camera / ambient perception | Experimental upstream capture is not usable | Future work; no vision claim |
 
-Wake words, tracking, duplex speech and task notifications are not part of the current verified build.
+Wake words, tracking and duplex speech are not part of the current verified
+build.
+
+## Interaction and setup
+
+- Hold the talk control for more than two seconds. A short tap, an unreleased
+  recording or a cancelled recording never enters the upload queue.
+- Open **Browser setup / proxy / voice** from the Wi-Fi settings page. The
+  device exposes a local `Muse-Setup-XXXXXX` access point, a persistent
+  eight-digit PIN and `http://192.168.4.1`.
+- Muse traffic can use a per-SSID SOCKS5/Clash proxy. The proxy must be on the
+  private LAN and accept that device; other destination names and Doubao TTS
+  stay direct. TLS still verifies the official server identity.
+- Muse final messages received while the gadget is idle enter a small bounded
+  notification queue. The gadget wakes, chirps, speaks the text and shows it as
+  a caption. This path is implemented, but server delivery of every phone and
+  scheduled-task message still needs account-level observation.
 
 ## Repository
 
@@ -50,7 +66,7 @@ TTS bridge: `python3 -m companion.tts_server` binds loopback by default. See [br
 
 ## Quality and delivery gates
 
-PRs and main pushes run repository/secret checks, project tests, upstream host tests, the UI simulator, and token-free StackChan/CoreS3 builds with partition size checks. CI never flashes hardware, calls paid providers, pairs accounts or receives personal credentials. Build bundles contain checksums and source provenance.
+PRs and main pushes run repository/secret checks, project tests, upstream host tests, the UI simulator, and token-free StackChan/CoreS3/Waveshare C6 builds with partition size checks. CI never flashes hardware, calls paid providers, pairs accounts or receives personal credentials. Build bundles contain checksums and source provenance.
 
 Release automation requires a matching source-tree hardware report, all CI jobs, explicit human confirmation and the `firmware-release` environment. It creates a **draft** release only. This is a process gate, not automatic proof of hardware correctness. See [CI and release policy](docs/ci-release.md).
 

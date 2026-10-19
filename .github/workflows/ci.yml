@@ -25,7 +25,18 @@ jobs:
           persist-credentials: false
       - run: python3 tools/check_repository.py
       - run: git show --format= --check HEAD -- . ":!firmware/**" ":!LICENSE"
-      - run: python3 -m unittest discover -s tests -v
+      - name: Run project tests
+        shell: bash
+        run: |
+          set +e
+          python3 -m unittest discover -s tests -v 2>&1 | tee project-tests.log
+          test_result=${PIPESTATUS[0]}
+          if [ "$test_result" -ne 0 ]; then
+            while IFS= read -r line; do
+              echo "::error title=Project test failed::$line"
+            done < <(grep -E '^(FAIL|ERROR):' project-tests.log)
+          fi
+          exit "$test_result"
 
   firmware:
     name: Firmware (${{ matrix.board }})
@@ -35,7 +46,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: [stackchan, cores3]
+        include:
+          - board: stackchan
+            profile: m5stack-stackchan
+            target: esp32s3
+          - board: cores3
+            profile: m5stack-cores3
+            target: esp32s3
+          - board: waveshare-c6-18
+            profile: waveshare-c6-18
+            target: esp32c6
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -48,14 +68,16 @@ jobs:
         run: |
           . "$IDF_PATH/export.sh" > /dev/null
           cp ../../docs/firmware-dependencies.lock.yml dependencies.lock
-          idf.py -B "$PWD/build-ci" -DIDF_TARGET=esp32s3 \
+          idf.py -B "$PWD/build-ci" -DIDF_TARGET="${{ matrix.target }}" \
             -DSDKCONFIG="$PWD/build-ci/sdkconfig" \
-            -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;devices/sdkconfig.muse;devices/sdkconfig.muse-m5stack-$BOARD" build
+            -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;devices/sdkconfig.muse;devices/sdkconfig.muse-${{ matrix.profile }}" build
       - name: Verify reviewed dependency versions
         shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           . "$IDF_PATH/export.sh" > /dev/null
-          python tools/check_dependency_lock.py firmware/esp32/dependencies.lock
+          python tools/check_dependency_lock.py firmware/esp32/dependencies.lock --target "$TARGET"
       - name: Package allowlisted artifacts
         shell: bash
         env:
