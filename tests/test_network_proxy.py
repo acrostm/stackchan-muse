@@ -37,7 +37,7 @@ typedef int nvs_handle_t;
 typedef struct { unsigned char ssid[33]; } wifi_ap_record_t;
 static char test_ssid[33]="home";
 static inline int esp_wifi_sta_get_ap_info(wifi_ap_record_t *out){memset(out,0,sizeof(*out));strcpy((char*)out->ssid,test_ssid);return test_ssid[0]?0:-1;}
-static inline void muse_settings_wifi(char *ssid,char *pass){strcpy(ssid,test_ssid);pass[0]=0;}
+static inline void muse_settings_wifi(char ssid[33],char pass[65]){strcpy(ssid,test_ssid);pass[0]=0;}
 typedef pthread_mutex_t *SemaphoreHandle_t;
 static inline SemaphoreHandle_t xSemaphoreCreateMutex(void){pthread_mutex_t *p=malloc(sizeof(*p));pthread_mutex_init(p,NULL);return p;}
 static inline int xSemaphoreTake(SemaphoreHandle_t p,int wait){(void)wait;return pthread_mutex_lock(p);}

@@ -12,7 +12,7 @@ Turn a CoreS3-based StackChan into a physical terminal for your existing Muse: v
 |---|---|---|
 | Recovery | Two matching 16 MiB backups; full restore write/hash verification and factory boot passed | Full factory feature regression |
 | Firmware | StackChan baseline builds on ESP-IDF 6.0.1; 47% app-slot headroom | CoreS3 probe boots with 8 MiB PSRAM; conversation verification pending |
-| Host checks | 143 upstream tests, one skipped; 40 project tests pass locally | CI results are recorded separately |
+| Host checks | 143 upstream tests, one skipped; 41 project tests pass locally | CI results are recorded separately |
 | Chinese speech | Direct Doubao playback and a real 1.80 s voice reply passed on hardware | Longer replies and fault injection on hardware |
 | Muse | Pairing, microphone input, assistant text and spoken reply passed on hardware | Personal context, tool permissions, history and reconnect cases |
 | Expressions / head | Upstream drivers available | Real-event integration, calibration, limits and arbitration |

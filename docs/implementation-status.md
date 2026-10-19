@@ -133,7 +133,7 @@ certificate was validated; direct Mac probes through both HTTP and SOCKS have
 the same failure. This is tracked as an external proxy-node issue, not counted
 as a successful Muse voice round trip.
 
-Latest local project suite: 40 tests passed. The new idle notification queue is
+Latest local project suite: 41 tests passed. The new idle notification queue is
 bounded to four messages, deduplicates 32 recent IDs, preserves complete UTF-8,
 and only accepts terminal assistant/text events. Real scheduled-task delivery
 still needs a working Muse connection and an actual account-side event.

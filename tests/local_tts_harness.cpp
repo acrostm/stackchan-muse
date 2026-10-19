@@ -81,8 +81,14 @@ int esp_http_client_read(esp_http_client_handle_t client, char *out, int n) {
   return -1;
  }
 
- if (client->kind == 6) { const char *bad = "{not_mp3}"; size_t len = strlen(bad);
-  if (client->offset) return 0; memcpy(out, bad, len); client->offset = len; return len; }
+ if (client->kind == 6) {
+  const char *bad = "{not_mp3}";
+  size_t len = strlen(bad);
+  if (client->offset) return 0;
+  memcpy(out, bad, len);
+  client->offset = len;
+  return len;
+ }
  if (client->kind == 8) {
   if (client->offset > 512 * 1024) return 0;
   memset(out, 'X', n); client->offset += n; return n;
