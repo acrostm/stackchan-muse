@@ -7,13 +7,13 @@
 
 `658dda9e044b480e910c052cf53c4151d00bb1f640a1fc56367b302db72f7651`
 
-读取后已重启到原固件并采集启动日志，**尚未进行恢复写入测试**。
-此次未擦除、未刷写 Flash、未修改 eFuse。
+已完成完整 16 MiB 恢复写入，工具校验通过；重启观察到原固件 stack-chan 1.5.1、外设和 GUI 初始化，无 panic 或复位循环。此结果不替代原固件全部功能回归。
+随后已刷入禁用舵机及自动 OTA 的 CoreS3 M1 探针，当前运行该探针。未修改 eFuse。
 
 恢复前应再次核对目标 MAC、Flash 容量与备份校验和，确认串口没有其他程序占用。
 恢复操作将覆盖设备当前 Flash；开发中只有需要回退并核验目标设备后才执行。
 
-从项目根目录恢复的参考命令（未执行）：
+从项目根目录恢复的参考命令（本机已执行并验证）：
 
 ```sh
 .venv/bin/python -m esptool --chip esp32s3 --port /dev/cu.usbmodem1101 write-flash 0 backups/factory-20261019/flash-a.bin

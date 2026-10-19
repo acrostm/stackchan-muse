@@ -71,6 +71,7 @@ extern "C" {
 #include "muse_account_api.h"
 #include "muse_link.h"
 #include "muse_settings.h"
+#include "muse_tts_json.h"
 #include "muse_wifi.h"
 }
 #include "muse_chat_priv.h"
@@ -100,7 +101,8 @@ static const char *TAG = "muse_chat_session";
 #define IN_BYTES (MIC_RATE * 2 * 8)        /* 8 s of mic backlog while connecting */
 #define OUT_BYTES (MIC_RATE * 2 * 2)       /* 2 s of decoded reply */
 #define EV_TEXT 72
-#define TEXT_MAX 1024                      /* a message's text, for captions timed to its speech */
+#define LOCAL_TTS_MAX_CHARS 700
+#define TEXT_MAX (LOCAL_TTS_MAX_CHARS * 4 + 1)                      /* a message's text, for captions timed to its speech */
 #define SPEECH_CHARS_PER_S 14              /* until the speech's length is known */
 #define TEXT_CHARS_PER_S 16                /* speaker off: reading pace, a little over speech */
 #define TEXT_HOLD_S 2                      /* speaker off: how long a message's last lines stay up */
@@ -202,6 +204,7 @@ struct msg_t {
     size_t len;              /* reply text length so far */
     char tail[128];          /* its last characters, for the caption */
     bool done;
+    bool text_full;          /* stop at the first truncated delta: retain a prefix */
     bool empty;              /* completed with no text: not the reply (voice turns wait past these) */
     tts_t tts;
     uint32_t pcm_start;      /* where its speech starts in the reply audio */
@@ -1331,7 +1334,9 @@ static void append_text(msg_t &m, const char *text)
         if (!m.len) {
             full[0] = '\0';
         }
-        strlcat(full, text, TEXT_MAX);
+        if (!m.text_full && !muse_utf8_append(full, TEXT_MAX, text)) {
+            m.text_full = true;
+        }
     }
     m.len += add;
     size_t have = strlen(m.tail);
@@ -1529,8 +1534,6 @@ static void tts_data(const uint8_t *data, size_t len);
  * both endpoints fail, so the caller falls back to the existing
  * behavior (captions, or the Muse speech fetch).
  */
-#define LOCAL_TTS_MAX_CHARS 700
-
 static const char *local_tts_url(void)
 {
 #if defined(CONFIG_MUSE_LOCAL_TTS_URL)
@@ -1626,28 +1629,15 @@ static bool local_tts_fetch(msg_t &m, int idx, const char *text)
         return false;
     }
     /* JSON-escape the text, capped so one reply stays a short utterance. */
-    size_t cap = LOCAL_TTS_MAX_CHARS * 2 + 16;
+    size_t cap = LOCAL_TTS_MAX_CHARS * 4 + 16;
     char *json = (char *)psram_alloc(cap);
     if (!json) {
         return false;
     }
-    size_t n = 0;
-    n += snprintf(json + n, cap - n, "{\"text\":\"");
-    size_t chars = 0;
-    for (const char *p = text; *p && chars < LOCAL_TTS_MAX_CHARS && n + 3 < cap; p++) {
-        char c = *p;
-        if (c == '"' || c == '\\') {
-            json[n++] = '\\';
-            json[n++] = c;
-        } else if ((unsigned char)c < 0x20) {
-            json[n++] = ' ';
-        } else {
-            json[n++] = c;
-        }
-        chars++;
+    if (!muse_tts_json(text, LOCAL_TTS_MAX_CHARS, json, cap, nullptr)) {
+        heap_caps_free(json);
+        return false;
     }
-    n += snprintf(json + n, cap - n, "\"}");
-    json[n] = '\0';
 
     bool ok = local_tts_try(m, idx, url, json);
     if (!ok) {

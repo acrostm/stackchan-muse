@@ -3,16 +3,16 @@
   "release_ready": false,
   "evidence": {
     "chip_identification": "passed: ESP32-S3, 16 MiB Flash",
-    "board_identification": "CoreS3/StackChan markers in factory image and boot log; custom driver boot pending",
+    "board_identification": "passed: CoreS3 driver boot, 8 MiB PSRAM; servo model/calibration unknown",
     "factory_backup": "passed: two full reads match SHA-256",
-    "restore_write_test": "not_run",
+    "restore_write_test": "passed: full 16 MiB write verified; factory stack-chan 1.5.1 boot without panic",
     "stackchan_baseline_build": "passed: app 0x221000, app slot 0x400000",
-    "upstream_host_tests": "143 run, 1 skipped: host PSA Crypto development library unavailable",
-    "project_host_tests": "18 passed",
+    "upstream_host_tests": "passed: cloud CI 143 run, no skips; local host lacks PSA development library",
+    "project_host_tests": "28 passed locally",
     "doubao_real_synthesis": "passed: MP3 24 kHz mono 64 kbps",
-    "device_audio_playback": "not_run",
-    "muse_pairing": "not_run",
-    "muse_voice_input_and_reply": "not_run",
+    "device_audio_playback": "passed: built-in MP3 3.67 s; owner confirmed audible normal sound; Doubao end-to-end playback pending",
+    "muse_pairing": "passed: owner paired in phone; device reports paired and Wi-Fi connected",
+    "muse_voice_input_and_reply": "blocked: paired Wi-Fi has no overseas route; account API connect timeout; first typed turn failed",
     "shared_personal_context": "unknown",
     "shared_tools_and_approval": "unknown",
     "shared_history": "unknown",
@@ -21,6 +21,10 @@
     "touch_cancellation": "not_hardware_verified",
     "camera": "upstream_capture_not_usable",
     "twenty_turn_acceptance": "not_run",
-    "two_hour_stability": "not_run"
+    "two_hour_stability": "not_run",
+    "cores3_account_probe_build": "passed: token-enabled, text replies, OTA disabled, no head driver; flashed and booted",
+    "proactive_message_delivery": "unknown: long-lived subscription exists, server event coverage not yet observed",
+    "proactive_message_playback": "not_implemented",
+    "tts_utf8_encoding": "passed: Chinese/emoji boundaries and JSON escaping; CoreS3 and StackChan builds passed"
   }
 }

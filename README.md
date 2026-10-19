@@ -4,16 +4,16 @@
 
 Turn a CoreS3-based StackChan into a physical terminal for your existing Muse: voice conversation, spoken Chinese replies, expressions and controlled head motion. Muse remains the agent; this project does not substitute another model.
 
-**Development snapshot, not a ready-to-flash release.** No custom firmware has been flashed. See [capability evidence](docs/capabilities.json) and [implementation notes](docs/implementation-status.md).
+**Development snapshot, not a ready-to-flash release.** A CoreS3 text-reply probe is flashed and boots; built-in speaker playback is confirmed by the owner. Muse pairing passed; the conversation loop is blocked by the device network route. See [capability evidence](docs/capabilities.json) and [implementation notes](docs/implementation-status.md).
 
 ## Status
 
 | Area | Evidence | Remaining work |
 |---|---|---|
-| Recovery | Two complete 16 MiB factory reads match | Restore write test |
-| Firmware | StackChan baseline builds on ESP-IDF 6.0.1; 47% app-slot headroom | Account-enabled probe and hardware verification |
-| Host checks | 143 upstream tests, one skipped; 24 project tests pass locally | CI results are recorded separately |
-| Chinese speech | Real Doubao synthesis returns 24 kHz mono MP3 | Device speaker, cancellation and timeout handling |
+| Recovery | Two matching 16 MiB backups; full restore write/hash verification and factory boot passed | Full factory feature regression |
+| Firmware | StackChan baseline builds on ESP-IDF 6.0.1; 47% app-slot headroom | CoreS3 probe boots with 8 MiB PSRAM; conversation verification pending |
+| Host checks | 143 upstream tests, one skipped; 28 project tests pass locally | CI results are recorded separately |
+| Chinese speech | Real Doubao synthesis returns 24 kHz mono MP3 | Built-in MP3 speaker test passed; Doubao device playback, cancellation and timeout handling pending |
 | Muse | Official SDK and pairing paths retained | Pairing, voice round trip, personal context and tools |
 | Expressions / head | Upstream drivers available | Real-event integration, calibration, limits and arbitration |
 | Camera / ambient perception | Experimental upstream capture is not usable | Future work; no vision claim |
@@ -61,3 +61,5 @@ Identify the board and servos, keep a verified factory backup and calibrate befo
 ## Contributing and license
 
 Read [CONTRIBUTING](CONTRIBUTING.md), [SECURITY](SECURITY.md), [recovery](docs/recovery.md) and [NOTICE](NOTICE). Code uses [Apache-2.0](LICENSE), subject to original third-party licenses. The upstream Jollybot artwork has separate terms and is **not** relicensed here. This is an independent personal project, not an official Meta or M5Stack product.
+
+Proactive messages and scheduled-task announcements are tracked in [the notification scope](docs/proactive-messages.md). Background delivery and device playback are not implemented or verified yet.
