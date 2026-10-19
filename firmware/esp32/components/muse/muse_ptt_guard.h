@@ -16,3 +16,7 @@ void muse_ptt_press(int64_t now_us);
 void muse_ptt_release(int64_t now_us);
 void muse_ptt_cancel(void);
 enum muse_ptt_result muse_ptt_result(void);
+
+/* A completed turn includes recordings that stopped at the maximum duration
+ * while the physical key is still down. An explicit cancellation always wins. */
+bool muse_ptt_should_submit(enum muse_ptt_result result, bool wake, bool reached_limit);

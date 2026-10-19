@@ -33,6 +33,13 @@ int main(void) {
     muse_ptt_press(14000000);
     muse_ptt_release(1);
     assert(muse_ptt_result() == MUSE_PTT_SHORT);
+    muse_ptt_press(15000000);
+    assert(muse_ptt_should_submit(muse_ptt_result(), false, true));
+    muse_ptt_cancel();
+    assert(!muse_ptt_should_submit(muse_ptt_result(), false, true));
+    assert(muse_ptt_should_submit(MUSE_PTT_SEND, false, false));
+    assert(muse_ptt_should_submit(MUSE_PTT_WAIT, true, false));
+    assert(!muse_ptt_should_submit(MUSE_PTT_SHORT, false, false));
 }
 ''')
             binary = Path(temp) / 'test'

@@ -234,8 +234,9 @@ static void take(rec_stats_t *st, const int16_t *pcm)
  * kept note to fall back on (why says what failed). There is no start chirp:
  * anything played now would land on top of the first words.
  */
-static bool record(bool barge_in, size_t *held, char *why, size_t cap)
+static bool record(bool barge_in, size_t *held, bool *reached_limit, char *why, size_t cap)
 {
+    *reached_limit = false;
     muse_state_set_mode(MUSE_MODE_LISTENING);
     muse_state_set_reply_pending(false);   /* talking again reads the last reply */
     muse_state_set_progress(0);
@@ -312,6 +313,7 @@ static bool record(bool barge_in, size_t *held, char *why, size_t cap)
     }
     muse_state_set_level(0);
     *held = n - pre;
+    *reached_limit = !released && n + MUSE_AUDIO_CHUNK > MAX_FRAMES;
 
     char tail[160];
     int tl = 0;
@@ -919,11 +921,12 @@ static void voice_task(void *arg)
             continue;
         }
         size_t held;
+        bool reached_limit;
         char why[96];
-        bool ok = record(pending_down, &held, why, sizeof(why));
+        bool ok = record(pending_down, &held, &reached_limit, why, sizeof(why));
         pending_down = false;
         enum muse_ptt_result gate = muse_ptt_result();
-        if (gate != MUSE_PTT_SEND && !wake) {
+        if (!muse_ptt_should_submit(gate, wake, reached_limit)) {
             muse_hatch_turn_cancel();
             drop_rec();
             pre_reset();

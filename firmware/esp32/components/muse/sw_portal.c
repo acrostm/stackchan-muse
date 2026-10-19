@@ -347,9 +347,16 @@ static void worker(void *arg)
             if (err == ESP_OK) {
                 if (u.wifi_update) muse_settings_set_wifi(u.ssid,u.pass);
                 close_portal();
-                if (u.sdk[0] && !muse_link_sdk_token_set(u.sdk)) sw_tts_set_status("SDK token save failed");
-                else if (restart) esp_restart();
-                else {
+                bool token_saved = true;
+                if (u.sdk[0]) {
+                    if (muse_link_sdk_token_set(u.sdk)) restart = true;
+                    else {
+                        token_saved = false;
+                        sw_tts_set_status("SDK token save failed");
+                    }
+                }
+                if (restart) esp_restart();
+                else if (token_saved) {
                     sw_config_t current; sw_config_get(&current);
                     sw_tts_set_status(sw_config_ready(&current) ? "Ready (not tested)" : "Not configured");
                     memset(&current, 0, sizeof(current));

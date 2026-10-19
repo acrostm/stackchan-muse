@@ -44,3 +44,9 @@ enum muse_ptt_result muse_ptt_result(void)
     }
     return MUSE_PTT_SEND;
 }
+
+bool muse_ptt_should_submit(enum muse_ptt_result result, bool wake, bool reached_limit)
+{
+    if (result == MUSE_PTT_CANCELLED) return false;
+    return result == MUSE_PTT_SEND || wake || reached_limit;
+}
