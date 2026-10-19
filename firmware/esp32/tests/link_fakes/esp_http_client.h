@@ -58,6 +58,7 @@ typedef esp_err_t (*esp_http_client_event_cb_t)(esp_http_client_event_t *evt);
 
 typedef struct {
     const char *url;
+    const char *common_name;
     const char *user_agent;
     esp_http_client_method_t method;
     int timeout_ms;

@@ -15,6 +15,7 @@
  */
 
 #include "vm_api.h"
+#include "muse_tls_route.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -48,6 +49,7 @@ typedef struct {
     size_t len;
     size_t cap;
     const char *auth_header;
+    bool relayed;
 } resp_buf_t;
 
 static bool http_origin(esp_http_client_handle_t client, char *out, size_t cap) {
@@ -63,6 +65,7 @@ static bool http_origin(esp_http_client_handle_t client, char *out, size_t cap) 
 static esp_err_t http_event_handler(esp_http_client_event_t *evt) {
     resp_buf_t *r = (resp_buf_t *)evt->user_data;
     if (evt->event_id == HTTP_EVENT_REDIRECT && r) {
+        if (r->relayed) return ESP_FAIL; /* Fixed TLS relay never follows redirects. */
         char before[384], after[384];
         bool have_origin = http_origin(evt->client, before, sizeof(before));
         // Remove first: set_redirection schedules the next request even if
@@ -129,8 +132,11 @@ static int http_json(const char *url, esp_http_client_method_t method,
     *resp = (resp_buf_t){ .auth_header = auth_header };
     *status_out = 0;
 
+    char relay_url[512];
+    bool relayed = muse_tls_route_api(url, relay_url, sizeof(relay_url));
+    resp->relayed = relayed;
     esp_http_client_config_t cfg = {
-        .url = url,
+        .url = relayed ? relay_url : url,
         .method = method,
         .timeout_ms = 15000,
         .buffer_size = 4096,
@@ -139,10 +145,12 @@ static int http_json(const char *url, esp_http_client_method_t method,
         .user_data = resp,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .disable_auto_redirect = true,
+        .common_name = relayed ? "api.muse.ai" : NULL,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) return VM_API_ERR_FAILED;
 
+    if (relayed) esp_http_client_set_header(client, "Host", "api.muse.ai");
     if (auth_header && *auth_header) {
         esp_http_client_set_header(client, "Authorization", auth_header);
     }

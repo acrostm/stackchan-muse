@@ -2,6 +2,7 @@
 """Build the pinned StackChan firmware with project-local IDF tools."""
 import argparse
 import json
+import ipaddress
 import os
 from pathlib import Path
 import subprocess
@@ -16,6 +17,7 @@ def main():
     parser.add_argument('--board', choices=('stackchan', 'cores3'), default='stackchan')
     parser.add_argument('--text-replies', action='store_true',
                         help='Use the verified upstream text path for capability probing')
+    parser.add_argument("--with-relay", action="store_true", help="Use private network.tls_relay_host; TLS verification stays enabled")
     args = parser.parse_args()
     idf = ROOT / '.toolchains/esp-idf'
     tools = ROOT / '.toolchains/tools'
@@ -36,6 +38,12 @@ def main():
         if not isinstance(token, str) or not token.startswith('mgst_') or not token.isascii():
             parser.error('Invalid or missing local Muse SDK token')
         local_defaults.append('CONFIG_GADGET_SDK_TOKEN=' + json.dumps(token))
+    if args.with_relay:
+        config = json.loads((ROOT / '.private/config.json').read_text())
+        address = ipaddress.ip_address(config.get('network', {}).get('tls_relay_host', ''))
+        if address.version != 4 or not address.is_private or address.is_loopback or address.is_unspecified:
+            parser.error('TLS relay must be one explicit private LAN IPv4 address')
+        local_defaults.append('CONFIG_MUSE_TLS_RELAY_HOST=' + json.dumps(str(address)))
     if args.text_replies:
         local_defaults.append('CONFIG_MUSE_TEXT_REPLIES=y')
     if local_defaults:
