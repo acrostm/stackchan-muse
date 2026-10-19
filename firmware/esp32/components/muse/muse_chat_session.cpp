@@ -79,6 +79,7 @@ extern "C" {
 #include "sw_runtime.h"
 #if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
 #include "boards/stackchan_expression.h"
+#include "boards/stackchan_head.h"
 #endif
 }
 #include "muse_chat_priv.h"
@@ -147,6 +148,7 @@ struct cmd_t {
     cmd_type_t type;
     uint32_t gen;
     char *text;              /* CMD_TEXT: malloc'd, freed by the session task */
+    uint32_t head_generation;
 };
 
 struct ev_t {
@@ -229,6 +231,7 @@ struct resampler_t {
 struct turn_t {
     phase_t phase;
     uint32_t gen;
+    uint32_t head_generation;
     bool text;               /* typed at the console: the reply goes there, unspoken */
     bool end_requested, end_sent, chat_posted, acked;
     int64_t dict_id, chat_id;
@@ -1024,7 +1027,7 @@ static void turn_done(bool complete)
 }
 
 /* Ends any turn in progress and starts a fresh one. False if Hatch can't be reached. */
-static bool turn_start(uint32_t gen, bool text)
+static bool turn_start(uint32_t gen, bool text, uint32_t head_generation)
 {
     if (s_turn.phase != P_IDLE) {
         if (s_turn.text) {
@@ -1042,6 +1045,7 @@ static bool turn_start(uint32_t gen, bool text)
     s_turn.note = note;
     s_turn.texts = texts;
     s_turn.gen = gen;
+    s_turn.head_generation = head_generation;
     s_turn.text = text;
     s_turn.tts_msg = -1;
     memset(s_marks, 0, sizeof(s_marks));
@@ -1055,9 +1059,9 @@ static bool turn_start(uint32_t gen, bool text)
     return true;
 }
 
-static void turn_begin(uint32_t gen)
+static void turn_begin(uint32_t gen, uint32_t head_generation)
 {
-    if (!turn_start(gen, false)) {
+    if (!turn_start(gen, false, head_generation)) {
         return;
     }
     if (VOICE_NOTE) {
@@ -1264,9 +1268,9 @@ static void post_chat(const char *text)
 }
 
 /* A typed turn: the text goes straight to the chat. */
-static void text_begin(const char *text)
+static void text_begin(const char *text, uint32_t head_generation)
 {
-    if (!turn_start(0, true)) {
+    if (!turn_start(0, true, head_generation)) {
         return;
     }
     ESP_LOGI(TAG, "typed turn: %u bytes", (unsigned)strlen(text));
@@ -1359,6 +1363,7 @@ static int bind_msg(const char *id, cJSON *payload)
     }
     msg_t &m = s_turn.msgs[s_turn.nmsgs];
     m = msg_t{};
+    if (s_turn.texts) s_turn.texts[s_turn.nmsgs * TEXT_MAX] = '\0';
     strlcpy(m.id, id, sizeof(m.id));
     return s_turn.nmsgs++;
 }
@@ -1411,6 +1416,9 @@ static void show_reply_start(const msg_t &m)
 
 static void message_done(int i, const char *final_text)
 {
+    /* Cancellation changes the atomic generation before its queued command
+     * reaches this task, including while poll_socket dispatches old events. */
+    if (!s_turn.text && s_turn.gen != s_gen.load()) return;
     msg_t &m = s_turn.msgs[i];
     if (m.done) {
         return;
@@ -1419,9 +1427,9 @@ static void message_done(int i, const char *final_text)
     mark(M_DONE);
 #if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
     const char *expression_text = final_text && final_text[0] ? final_text
-        : s_turn.texts ? s_turn.texts + i * TEXT_MAX : nullptr;
+        : m.len && s_turn.texts ? s_turn.texts + i * TEXT_MAX : nullptr;
     if (expression_text && expression_text[0])
-        stackchan_express_reply(expression_text);
+        stackchan_express_reply_for_generation(expression_text, s_turn.head_generation);
 #endif
     if (s_turn.text) {
         /* The whole text if the pieces didn't add up to it (a line skipped, say): the reader uses it instead. */
@@ -2158,7 +2166,7 @@ static void handle(const cmd_t &cmd)
         break;
     case CMD_BEGIN:
         if (cmd.gen == s_gen.load()) {
-            turn_begin(cmd.gen);
+            turn_begin(cmd.gen, cmd.head_generation);
         }
         break;
     case CMD_END:
@@ -2181,7 +2189,7 @@ static void handle(const cmd_t &cmd)
         if (s_turn.phase != P_IDLE && !s_turn.text) {
             muse_hatch_console("error", "BUSY WITH A VOICE TURN", nullptr);
         } else {
-            text_begin(cmd.text);
+            text_begin(cmd.text, cmd.head_generation);
         }
         free(cmd.text);
         break;
@@ -2273,10 +2281,19 @@ static void hatch_task(void *arg)
 
 /* ---- Public API ---- */
 
+static uint32_t current_head_generation(void)
+{
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+    return stackchan_head_ready_generation();
+#else
+    return 0;
+#endif
+}
+
 static void post(cmd_type_t type, uint32_t gen)
 {
     if (s_cmds) {
-        cmd_t cmd{ type, gen, nullptr };
+        cmd_t cmd{ type, gen, nullptr, current_head_generation() };
         xQueueSend(s_cmds, &cmd, pdMS_TO_TICKS(100));
     }
 }
@@ -2379,7 +2396,7 @@ extern "C" void muse_hatch_set_resting(bool resting)
 
 extern "C" void muse_hatch_text_turn(char *text)
 {
-    cmd_t cmd{ CMD_TEXT, 0, text };
+    cmd_t cmd{ CMD_TEXT, 0, text, current_head_generation() };
     if (!s_cmds || !muse_hatch_configured()) {
         muse_hatch_console("error", "MUSE NOT SET UP", nullptr);
         free(text);

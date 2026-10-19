@@ -66,7 +66,11 @@ static void expression_task(void *arg)
 
 void stackchan_express_reply(const char *text)
 {
-    const uint32_t generation = stackchan_head_ready_generation();
+    stackchan_express_reply_for_generation(text, stackchan_head_ready_generation());
+}
+
+void stackchan_express_reply_for_generation(const char *text, uint32_t generation)
+{
     if (!generation || atomic_exchange(&s_busy, true)) return;
     s_request = (expression_request_t){
         .expression = stackchan_expression_plan(text),

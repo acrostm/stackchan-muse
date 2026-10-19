@@ -79,6 +79,9 @@ int main(void) {
     generation = 1; fail_create = true;
     stackchan_express_reply("allocation failure");
     assert(!atomic_load(&s_busy) && moves == 0);
+    fail_create = false; generation = 2;
+    stackchan_express_reply_for_generation("late reply from cancelled turn", 1);
+    assert(!atomic_load(&s_busy) && moves == 0);
     return 0;
 }
 '''
