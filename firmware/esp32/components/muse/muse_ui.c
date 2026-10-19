@@ -443,7 +443,9 @@ static void build_button_icons(lv_obj_t *face)
 static void on_canvas_clicked(lv_event_t *e)
 {
     (void)e;
-    if (muse_state_mode(NULL) != MUSE_MODE_IDLE && s_stop_callback)
+    const muse_mode_t mode = muse_state_mode(NULL);
+    if ((mode == MUSE_MODE_LISTENING || mode == MUSE_MODE_THINKING ||
+         mode == MUSE_MODE_SPEAKING) && s_stop_callback)
         s_stop_callback();
 #if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
     stackchan_head_stop();

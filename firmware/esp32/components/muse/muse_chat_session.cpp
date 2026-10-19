@@ -2283,6 +2283,8 @@ static void post(cmd_type_t type, uint32_t gen)
 
 static void drain_out(void)
 {
+    /* UI cancellation can arrive before startup has allocated the stream. */
+    if (!s_out) return;
     static int16_t junk[256];
     while (xStreamBufferReceive(s_out, junk, sizeof(junk), 0)) {
     }

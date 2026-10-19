@@ -1,4 +1,6 @@
 from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 
 
@@ -21,6 +23,42 @@ def function_body(source: str, signature: str) -> str:
 
 
 class StackChanSequenceGuardTests(unittest.TestCase):
+    def test_cancel_drain_before_and_after_stream_initialization(self):
+        session = (
+            ROOT / 'firmware/esp32/components/muse/muse_chat_session.cpp'
+        ).read_text()
+        body = function_body(session, 'static void drain_out(void)')
+        source = r'''
+#include <assert.h>
+#include <stdint.h>
+#include <stddef.h>
+static void *s_out;
+static unsigned calls, remaining;
+static size_t xStreamBufferReceive(void *stream, void *out, size_t cap, int wait) {
+    assert(stream != NULL);
+    (void)out; (void)cap; (void)wait;
+    ++calls;
+    if (!remaining) return 0;
+    --remaining;
+    return 2;
+}
+static void drain_out(void)
+''' + body + r'''
+int main(void) {
+    drain_out(); assert(calls == 0);
+    s_out = &calls; remaining = 3;
+    drain_out(); assert(calls == 4 && remaining == 0);
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / 'test.c').write_text(source)
+            subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                            '-fsanitize=address,undefined', str(path / 'test.c'),
+                            '-o', str(path / 'test')], check=True)
+            subprocess.run([str(path / 'test')], check=True)
+
     def test_stop_and_explicit_commands_invalidate_old_sequences(self):
         head = (BOARDS / 'stackchan_head.c').read_text()
         move = function_body(
