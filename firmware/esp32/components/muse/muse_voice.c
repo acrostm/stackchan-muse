@@ -203,12 +203,25 @@ static void keep(rec_stats_t *st, const int16_t *pcm, size_t n)
     }
 }
 
-/* Opens the turn. Audio stays local until release and duration validation. */
+#if HOLD_NOTES
+/* Gives Hatch what it has room for of the kept note being recorded. */
+static void feed_live(void)
+{
+    if (s_live && s_sent < s_rec_n)
+        s_sent += muse_hatch_turn_audio_wait(s_rec + s_sent, s_rec_n - s_sent, 0);
+}
+#endif
+
+/* Kept-note builds wait for release before validation; the no-PSRAM Link path
+ * has no whole-note buffer and preserves its original live streaming. */
 static void go_live(void)
 {
     muse_hatch_turn_begin();
     s_live = s_tried = true;
     s_sent = 0;
+#if HOLD_NOTES
+    feed_live();
+#endif
 }
 
 /* One chunk of speech: into the stats, and on to Hatch, by way of the kept note if there is one. */
@@ -216,14 +229,21 @@ static void take(rec_stats_t *st, const int16_t *pcm)
 {
     keep(st, pcm, MUSE_AUDIO_CHUNK);
     if (!s_rec) {
+#if HOLD_NOTES
         if (s_live) {
             muse_hatch_turn_cancel();
             s_live = false;
         }
+#else
+        if (s_live) muse_hatch_turn_audio(pcm, MUSE_AUDIO_CHUNK);
+#endif
         return;
     }
     memcpy(s_rec + s_rec_n, pcm, MUSE_AUDIO_CHUNK * sizeof(int16_t));
     s_rec_n += MUSE_AUDIO_CHUNK;
+#if HOLD_NOTES
+    feed_live();
+#endif
 }
 
 /*
@@ -775,8 +795,8 @@ static bool can_record(void)
         ESP_LOGE(TAG, "no memory to keep a note");
     }
 #endif
-    if (!s_rec) {
-        go_idle(ready ? "NOT ENOUGH MEMORY" : not_ready_reason());
+    if (!ready && !s_rec) {
+        go_idle(not_ready_reason());
         return false;
     }
     return true;
