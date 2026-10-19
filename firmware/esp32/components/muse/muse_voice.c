@@ -789,7 +789,7 @@ static void speak_tts_text(const char *text, bool notification)
     sw_text_copy(caption, sizeof(caption), text);
     if (!muse_settings_speaker_on()) {
         muse_state_set_caption("%s", caption);
-        muse_state_set_reply_pending(true);
+        muse_state_set_reply_pending(notification);
         go_idle(caption);
         return;
     }
@@ -798,7 +798,7 @@ static void speak_tts_text(const char *text, bool notification)
         ESP_LOGW(TAG, "%s TTS unavailable", notification ? "notification" : "speaker-test");
         muse_state_set_caption("%s", caption);
         muse_state_set_reply_pending(notification);
-        go_idle("TTS NOT CONFIGURED");
+        go_idle(caption);
         return;
     }
     muse_state_set_mode(MUSE_MODE_SPEAKING);
