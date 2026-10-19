@@ -24,11 +24,9 @@ Reject changes that weaken the current-commit Codex gate, accept an untrusted
 actor, accept a stale review, treat a reaction or generic comment as approval,
 or execute PR code with a writable review token.
 
-### Explicit verdict for the official Codex GitHub reviewer
+### Official native verdict
 
-When reviewing a PR, after reviewing its actual diff and applicable rules, give
-an explicit verdict in the standard GitHub review body. If there are no findings
-and you approve, include exactly one line `MuseStack-Review: APPROVE <HEAD_SHA>`
-with the full actual 40-character PR head SHA. If there are findings, missing
-context or unfinished review, do not emit that line. The line represents your
-review conclusion; it is not permission to waive CI or hardware acceptance.
+Only the official Codex bot's native machine-readable completed/no-findings
+summary for the full current PR head SHA can satisfy the review gate. Formal
+GitHub review states, custom markers, reactions and generic comments are not
+substitutes. Never fabricate or manually edit that native result.

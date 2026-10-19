@@ -10,7 +10,7 @@ import urllib.request
 BOT = 'chatgpt-codex-connector[bot]'
 
 
-def evaluate(head, reviews, comments, summaries=()):
+def evaluate(head, summaries):
     native = [c for c in summaries if c.get('user', {}).get('login') == BOT
               and c.get('user', {}).get('type') == 'Bot'
               and '<!-- codex-pull-request-review-summary -->' in (c.get('body') or '')]
@@ -28,18 +28,6 @@ def evaluate(head, reviews, comments, summaries=()):
                           and verdict.get('has_unresolved_findings') is False)
         if not native_approved:
             return False, 'Latest native Codex result is not a completed clean review of this commit.'
-    candidates = [r for r in reviews if r.get('user', {}).get('login') == BOT
-                  and r.get('user', {}).get('type') == 'Bot'
-                  and r.get('commit_id') == head]
-    if candidates:
-        latest = max(candidates, key=lambda review: review['id'])
-        if latest.get('state') not in ('APPROVED', 'COMMENTED'):
-            return False, 'Latest Codex review does not approve this commit.'
-        if any(comment.get('pull_request_review_id') == latest['id'] for comment in comments):
-            return False, 'Latest Codex review contains inline findings.'
-        marker = re.search(r'^MuseStack-Review: APPROVE ([0-9a-f]{40})\s*$', latest.get('body') or '', re.M)
-        if latest.get('state') == 'APPROVED' or (marker and marker.group(1) == head):
-            return True, 'Official Codex explicitly approves the current commit.'
     if native_approved:
         return True, 'Official Codex completed review of this commit with no findings.'
     return False, 'Codex has not supplied an explicit current-commit approval.'
@@ -71,28 +59,11 @@ class GitHub:
         raise ValueError('Review history exceeds the audited pagination limit')
 
 
-def main(number_override=None):
+def main():
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     repository = os.environ['GITHUB_REPOSITORY']
     api = GitHub(repository, os.environ['GH_TOKEN'])
-    if 'workflow_run' in event and number_override is None:
-        # The PR workflow is only a wake-up signal. Ignore its result, code,
-        # artifacts and PR metadata; independently re-read every open PR.
-        results = []
-        for pr in api.pages('/pulls'):
-            if pr['base']['ref'] != 'main':
-                continue
-            try:
-                results.append(main(pr['number']))
-            except Exception:
-                # One unsupported fork or API failure must not prevent another
-                # PR's previously successful verdict from being revoked.
-                results.append(1)
-                print(f"Verification failed for PR {pr['number']}; continuing other PRs.")
-        return int(any(results))
     number = (event.get('pull_request') or event.get('issue') or {}).get('number')
-    if number_override is not None:
-        number = number_override
     if number is None:
         number = int(event.get('inputs', {}).get('pull_request', '0'))
     if type(number) is not int or number < 1:
@@ -107,10 +78,8 @@ def main(number_override=None):
             raise ValueError('Only pull requests into this repository main are supported')
         if pr['head']['repo']['full_name'] != repository:
             raise ValueError('Fork submissions require a maintainer branch before this gate can approve')
-        reviews = api.pages(f'/pulls/{number}/reviews')
-        comments = api.pages(f'/pulls/{number}/comments')
         summaries = api.pages(f'/issues/{number}/comments')
-        approved, summary = evaluate(head, reviews, comments, summaries)
+        approved, summary = evaluate(head, summaries)
         if api.request(f'/pulls/{number}')['head']['sha'] != head:
             approved, summary = False, 'Head changed while reviewing; a new review is required.'
         api.request('/check-runs/' + str(check['id']), {'status': 'completed',
