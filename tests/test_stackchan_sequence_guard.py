@@ -63,6 +63,9 @@ class StackChanSequenceGuardTests(unittest.TestCase):
         self.assertIn('atomic_store_explicit(&s_stop_requested', voice)
         self.assertIn('muse_hatch_turn_cancel();', voice)
         self.assertIn('sw_tts_cancel();', voice)
+        self.assertIn('FEED_STOPPED', voice)
+        self.assertIn('if (stopped || delivered || interrupted)', voice)
+        self.assertIn('drop_oldest();', voice)
 
 
 if __name__ == '__main__':

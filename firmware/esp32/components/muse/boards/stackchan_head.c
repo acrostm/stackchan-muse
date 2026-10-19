@@ -320,31 +320,39 @@ static void motion_task(void *arg)
                 }
                 stackchan_motion_cancel(&s_motion);
             } else {
-                int yaw = raw_to_angle(yaw_raw, s_yaw_zero);
-                int pitch = raw_to_angle(pitch_raw, s_pitch_zero);
-                yaw = yaw < -STACKCHAN_YAW_LIMIT_TENTHS ? -STACKCHAN_YAW_LIMIT_TENTHS
-                      : yaw > STACKCHAN_YAW_LIMIT_TENTHS ? STACKCHAN_YAW_LIMIT_TENTHS : yaw;
-                pitch = pitch < 0 ? 0 : pitch > STACKCHAN_PITCH_LIMIT_TENTHS
-                                          ? STACKCHAN_PITCH_LIMIT_TENTHS : pitch;
-                stackchan_motion_rebase(&s_motion, yaw, pitch);
-                s_last_yaw = yaw;
-                s_last_pitch = pitch;
-                const esp_err_t preload_yaw = servo_write_raw(SERVO_YAW_ID, yaw_raw);
-                const esp_err_t preload_pitch = servo_write_raw(SERVO_PITCH_ID, pitch_raw);
-                if (preload_yaw == ESP_OK && preload_pitch == ESP_OK) {
-                    const esp_err_t torque_yaw = servo_torque(SERVO_YAW_ID, true);
-                    const esp_err_t torque_pitch = servo_torque(SERVO_PITCH_ID, true);
-                    if (torque_yaw == ESP_OK && torque_pitch == ESP_OK) {
-                        s_torque_on = true;
-                        moving = stackchan_motion_tick(&s_motion, now_us, dt_s,
-                                                       &yaw_tenths, &pitch_tenths);
-                    } else {
-                        servo_torque(SERVO_YAW_ID, false);
-                        servo_torque(SERVO_PITCH_ID, false);
-                        ESP_LOGW(TAG, "could not enable servo torque");
+                const int yaw = raw_to_angle(yaw_raw, s_yaw_zero);
+                const int pitch = raw_to_angle(pitch_raw, s_pitch_zero);
+                if (yaw < -STACKCHAN_YAW_LIMIT_TENTHS ||
+                    yaw > STACKCHAN_YAW_LIMIT_TENTHS ||
+                    pitch < 0 || pitch > STACKCHAN_PITCH_LIMIT_TENTHS) {
+                    if (!s_feedback_warn_us ||
+                        now_us - s_feedback_warn_us >= 2LL * 1000000) {
+                        ESP_LOGW(TAG, "head is outside soft limits; motion cancelled");
+                        s_feedback_warn_us = now_us;
                     }
+                    stackchan_motion_cancel(&s_motion);
                 } else {
-                    ESP_LOGW(TAG, "could not preload measured servo position");
+                    stackchan_motion_rebase(&s_motion, yaw, pitch);
+                    s_last_yaw = yaw;
+                    s_last_pitch = pitch;
+                    const esp_err_t preload_yaw = servo_write_raw(SERVO_YAW_ID, yaw_raw);
+                    const esp_err_t preload_pitch = servo_write_raw(SERVO_PITCH_ID, pitch_raw);
+                    if (preload_yaw == ESP_OK && preload_pitch == ESP_OK) {
+                        const esp_err_t torque_yaw = servo_torque(SERVO_YAW_ID, true);
+                        const esp_err_t torque_pitch = servo_torque(SERVO_PITCH_ID, true);
+                        if (torque_yaw == ESP_OK && torque_pitch == ESP_OK) {
+                            s_torque_on = true;
+                            s_feedback_warn_us = 0;
+                            moving = stackchan_motion_tick(&s_motion, now_us, dt_s,
+                                                           &yaw_tenths, &pitch_tenths);
+                        } else {
+                            servo_torque(SERVO_YAW_ID, false);
+                            servo_torque(SERVO_PITCH_ID, false);
+                            ESP_LOGW(TAG, "could not enable servo torque");
+                        }
+                    } else {
+                        ESP_LOGW(TAG, "could not preload measured servo position");
+                    }
                 }
             }
         } else {
@@ -514,6 +522,7 @@ esp_err_t stackchan_head_move_for_generation(int yaw_deg, int pitch_deg, int spe
     const bool accepted = stackchan_motion_set_target(
         &s_motion, yaw_deg * 10, pitch_deg * 10, speed, priority,
         esp_timer_get_time(), expires_us);
+    if (accepted && !s_torque_on) s_motion.active = true;
     TaskHandle_t task = s_motion_task;
     xSemaphoreGive(s_lock);
     if (!accepted) return ESP_ERR_INVALID_STATE;

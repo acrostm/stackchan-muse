@@ -84,6 +84,9 @@ int main(void) {
         enable = task.index('servo_torque(SERVO_YAW_ID, true)')
         self.assertLess(feedback, preload)
         self.assertLess(preload, enable)
+        self.assertIn('head is outside soft limits; motion cancelled', task)
+        self.assertIn(
+            'if (accepted && !s_torque_on) s_motion.active = true;', source)
 
 
 if __name__ == "__main__":

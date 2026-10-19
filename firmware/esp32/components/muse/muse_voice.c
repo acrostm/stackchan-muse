@@ -397,7 +397,7 @@ static void go_idle(const char *caption);
  * Plays Hatch's reply as it arrives, with its text as the caption. Returns
  * true if interrupted by a new press. *delivered: the VM has the note.
  */
-static bool hatch_reply(bool *delivered, uint32_t *press_turn)
+static bool hatch_reply(bool *delivered, uint32_t *press_turn, bool *stopped)
 {
     muse_state_set_mode(MUSE_MODE_THINKING);
     muse_state_set_caption("SENDING VOICE NOTE");   /* until there's a transcript or reply */
@@ -409,10 +409,13 @@ static bool hatch_reply(bool *delivered, uint32_t *press_turn)
     size_t played = 0;
     int64_t t0 = esp_timer_get_time();
     *delivered = false;
+    if (stopped) *stopped = false;
     for (;;) {
         if (take_stop_request()) {
             muse_hatch_turn_cancel();
             muse_state_set_level(0);
+            muse_state_set_reply_pending(false);
+            if (stopped) *stopped = true;
             go_idle("");
             return false;
         }
@@ -487,7 +490,16 @@ static bool hatch_reply(bool *delivered, uint32_t *press_turn)
     }
     if (!played) {
         /* No speech (TTS unavailable): leave the reply text up for a moment. */
-        vTaskDelay(pdMS_TO_TICKS(2500));
+        for (int i = 0; i < 25; ++i) {
+            if (take_stop_request()) {
+                muse_hatch_turn_cancel();
+                muse_state_set_reply_pending(false);
+                if (stopped) *stopped = true;
+                go_idle("");
+                return false;
+            }
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
     }
     return false;
 }
@@ -711,11 +723,11 @@ static bool send_held(bool quiet, uint32_t *press_turn)
     muse_hatch_turn_begin();
     size_t sent = 0;
     feed_t fed = feed_rest(h->pcm, h->frames, &sent, true);
-    bool delivered = false, interrupted = false;
+    bool delivered = false, interrupted = false, stopped = false;
     if (fed == FED && quiet) {
         delivered = wait_delivered();
     } else if (fed == FED) {
-        interrupted = hatch_reply(&delivered, press_turn);
+        interrupted = hatch_reply(&delivered, press_turn, &stopped);
     }
     if (fed != FED || quiet) {
         muse_hatch_turn_cancel();   /* asleep, the reply is left for the app */
@@ -727,6 +739,12 @@ static bool send_held(bool quiet, uint32_t *press_turn)
         return false;
     }
     if (fed == FEED_STOPPED) {
+        drop_oldest();
+        go_idle("");
+        return false;
+    }
+    if (stopped) {
+        drop_oldest();
         go_idle("");
         return false;
     }
@@ -789,7 +807,7 @@ static bool finish_note(uint32_t *press_turn)
     bool delivered;
 #if HOLD_NOTES
     if (s_rec) {
-        bool fed = false, interrupted = false;
+        bool fed = false, interrupted = false, stopped = false;
         delivered = false;
         if (s_live && s_sent == s_rec_n) {
             muse_hatch_turn_end();   /* before the chirp, which takes ~90 ms */
@@ -813,9 +831,9 @@ static bool finish_note(uint32_t *press_turn)
             }
         }
         if (fed) {
-            interrupted = hatch_reply(&delivered, press_turn);
+            interrupted = hatch_reply(&delivered, press_turn, &stopped);
         }
-        if (delivered || interrupted) {
+        if (stopped || delivered || interrupted) {
             drop_rec();
         } else {
             hold_rec(s_tried);
@@ -825,7 +843,9 @@ static bool finish_note(uint32_t *press_turn)
 #endif
     muse_hatch_turn_end();   /* before the chirp, which takes ~90 ms */
     muse_audio_chirp(0);
-    return hatch_reply(&delivered, press_turn);
+    bool stopped = false;
+    const bool interrupted = hatch_reply(&delivered, press_turn, &stopped);
+    return stopped ? false : interrupted;
 }
 
 /*
@@ -952,6 +972,8 @@ static void voice_task(void *arg)
         bool barge_in = false;
         uint32_t turn = pending_turn;
         pending_turn = 0;
+        if (!turn && muse_state_mode(NULL) == MUSE_MODE_IDLE)
+            (void)take_stop_request();
         if (turn) {
             barge_in = pending_barge;
             pending_barge = false;
