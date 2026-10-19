@@ -1148,7 +1148,12 @@ void muse_voice_request_stop(void)
 {
     atomic_store_explicit(&s_stop_requested, true, memory_order_release);
     muse_ptt_cancel_current();
+#if CONFIG_MUSE_HATCH
+    /* The session backend posts cancellation to its own worker. The Link
+     * backend frees buffers synchronously and must only be called by the
+     * owning voice task when it observes s_stop_requested. */
     muse_hatch_turn_cancel();
+#endif
     sw_tts_cancel();
     muse_state_nudge();
 }

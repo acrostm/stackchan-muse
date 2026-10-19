@@ -23,6 +23,39 @@ def function_body(source: str, signature: str) -> str:
 
 
 class StackChanSequenceGuardTests(unittest.TestCase):
+    def test_ui_stop_does_not_free_link_backend_buffers(self):
+        voice = (ROOT / 'firmware/esp32/components/muse/muse_voice.c').read_text()
+        body = function_body(voice, 'void muse_voice_request_stop(void)')
+        source = r'''
+#include <assert.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+static atomic_bool s_stop_requested;
+static unsigned cancelled, ptt, tts, nudges;
+void muse_ptt_cancel_current(void) { ++ptt; }
+void muse_hatch_turn_cancel(void) { ++cancelled; }
+void sw_tts_cancel(void) { ++tts; }
+void muse_state_nudge(void) { ++nudges; }
+void muse_voice_request_stop(void)
+''' + body + r'''
+int main(void) {
+    muse_voice_request_stop();
+    assert(atomic_load(&s_stop_requested));
+    assert(ptt == 1 && tts == 1 && nudges == 1);
+    assert(cancelled == CONFIG_MUSE_HATCH);
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / 'test.c').write_text(source)
+            for backend in (0, 1):
+                subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                                '-fsanitize=address,undefined',
+                                f'-DCONFIG_MUSE_HATCH={backend}', str(path / 'test.c'),
+                                '-o', str(path / 'test')], check=True)
+                subprocess.run([str(path / 'test')], check=True)
+
     def test_cancel_drain_before_and_after_stream_initialization(self):
         session = (
             ROOT / 'firmware/esp32/components/muse/muse_chat_session.cpp'
