@@ -53,6 +53,8 @@ class StackChanSequenceGuardTests(unittest.TestCase):
         ).read_text()
         self.assertIn('#include "boards/stackchan_head.h"', voice)
         self.assertIn('stackchan_head_stop();', voice)
+        interrupted = function_body(voice, 'static bool take_down(')
+        self.assertIn('stackchan_head_stop();', interrupted)
 
     def test_face_stop_reaches_the_voice_task(self):
         app = (ROOT / 'firmware/esp32/components/muse/muse_app.c').read_text()

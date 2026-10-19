@@ -202,6 +202,11 @@ static bool take_down(uint32_t *turn, bool *wake)
         muse_state_poke();
         if (ev.type == MUSE_PTT_DOWN && !hit) {
             hit = true;
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+            /* Invalidate the old reply/notification gesture at interruption,
+             * before any audio drain or transition into the next recording. */
+            stackchan_head_stop();
+#endif
             if (turn) *turn = ev.turn ? ev.turn : muse_ptt_press(esp_timer_get_time());
             if (wake) *wake = ev.wake;
         } else if (ev.type == MUSE_PTT_DOWN) {
