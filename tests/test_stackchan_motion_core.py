@@ -69,6 +69,34 @@ int main(void) {
     assert(stackchan_motion_tick(&m, 5020000, 0.02f, &yaw, &pitch));
     assert(yaw < 100 && pitch < 100);
     assert(!stackchan_motion_tick(&m, 6000000, 0.02f, &yaw, &pitch));
+
+    /* Large initial errors and alternating targets cannot exceed the physical
+     * rate cap; stiffness alone used to allow a much faster first move. */
+    for (int speed = 0; speed <= 1000; speed += 100) {
+        stackchan_motion_init(&m, -1280, 900);
+        for (int step = 0; step < 500; ++step) {
+            if (step % 50 == 0)
+                assert(stackchan_motion_set_target(&m, step % 100 ? -1280 : 1280,
+                    step % 100 ? 900 : 0, speed, STACKCHAN_MOVE_COMMAND,
+                    10000000 + step * 20000, 0));
+            const float old_yaw = m.yaw, old_pitch = m.pitch;
+            stackchan_motion_tick(&m, 10000000 + step * 20000, 0.02f, &yaw, &pitch);
+            const float maximum_step = m.max_velocity * 0.02f + 0.001f;
+            assert(fabsf(m.yaw - old_yaw) <= maximum_step);
+            assert(fabsf(m.pitch - old_pitch) <= maximum_step);
+            assert(fabsf(m.yaw_velocity) <= m.max_velocity + 0.001f);
+            assert(fabsf(m.pitch_velocity) <= m.max_velocity + 0.001f);
+        }
+    }
+    stackchan_motion_init(&m, 0, 0);
+    assert(stackchan_motion_set_target(&m, 1, 1, 0,
+        STACKCHAN_MOVE_COMMAND, 0, 0));
+    for (int step = 0; step < 5000; ++step) {
+        const float old_yaw = m.yaw;
+        stackchan_motion_tick(&m, step * 1000, 0.001f, &yaw, &pitch);
+        assert(fabsf(m.yaw - old_yaw) <= m.max_velocity * 0.001f + 0.00001f);
+    }
+    assert(!m.active);
     return 0;
 }
 '''

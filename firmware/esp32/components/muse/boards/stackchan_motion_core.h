@@ -9,9 +9,10 @@
 
 typedef enum {
     STACKCHAN_MOVE_EXPRESSION = 1,
-    STACKCHAN_MOVE_PET = 2,
-    STACKCHAN_MOVE_COMMAND = 3,
-    STACKCHAN_MOVE_EMERGENCY = 4,
+    STACKCHAN_MOVE_TRACKING = 2,
+    STACKCHAN_MOVE_PET = 3,
+    STACKCHAN_MOVE_COMMAND = 4,
+    STACKCHAN_MOVE_EMERGENCY = 5,
 } stackchan_move_priority_t;
 
 typedef struct {
@@ -23,6 +24,7 @@ typedef struct {
     float target_pitch;
     float stiffness;
     float damping;
+    float max_velocity;  /* tenths of a degree per second */
     int priority;
     int64_t expires_us;
     bool active;

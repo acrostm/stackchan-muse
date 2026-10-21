@@ -66,6 +66,10 @@ esp_err_t stackchan_head_center(void);
  * multi-step sequences. */
 void stackchan_head_stop(void);
 
+/* New speech cancels old reply/pet sequences without ending an independently
+ * enabled tracking lease. Physical/emergency stop still cancels everything. */
+void stackchan_head_cancel_reply(void);
+
 /* Save the current physical position as this unit's (0, 0). Centre the head
  * by hand while torque is off before calling this. */
 esp_err_t stackchan_head_calibrate_current(void);
@@ -75,6 +79,14 @@ esp_err_t stackchan_head_set_power(bool on);
 
 /* Bench/serial: head.status, head.calibrate, head.stop, head.look=YAW,PITCH. */
 bool stackchan_head_console_command(const char *line);
+
+/* Explicit USB tracking session. Any stop or explicit command invalidates it.
+ * Requests use tenths of degrees, ordered sequence numbers and a 100..1000 ms
+ * device-local TTL. Expiry requires a new explicit begin, never auto-resume. */
+uint32_t stackchan_head_track_begin(void);
+esp_err_t stackchan_head_track_stop(uint32_t generation);
+esp_err_t stackchan_head_track(uint32_t generation, uint32_t sequence,
+                                int yaw_tenths, int pitch_tenths, int ttl_ms);
 
 #ifdef __cplusplus
 }

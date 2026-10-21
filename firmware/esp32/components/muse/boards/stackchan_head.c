@@ -24,6 +24,7 @@
 #include "driver/uart.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -31,6 +32,8 @@
 #include "nvs.h"
 #include "sdkconfig.h"
 
+#include <errno.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -88,6 +91,20 @@ static bool s_uart_ready;
 static bool s_calibrated;
 static bool s_torque_on;
 static uint32_t s_generation = 1;
+static uint32_t s_tracking_generation;
+static uint32_t s_tracking_sequence;
+static int64_t s_tracking_deadline_us;
+
+static void stop_locked(void);
+
+static void tracking_expire_locked(int64_t now_us)
+{
+    if (s_tracking_generation && now_us >= s_tracking_deadline_us) {
+        stop_locked();
+        ++s_generation;
+        if (!s_generation) ++s_generation;
+    }
+}
 
 static esp_err_t ioe_read(uint8_t reg, uint8_t *val)
 {
@@ -307,6 +324,7 @@ static void motion_task(void *arg)
         if (dt_s > 0.05f) dt_s = 0.05f;
 
         xSemaphoreTake(s_lock, portMAX_DELAY);
+        tracking_expire_locked(now_us);
         int yaw_tenths = (int)s_motion.yaw, pitch_tenths = (int)s_motion.pitch;
         bool moving = false;
         if (s_motion.active && !s_torque_on) {
@@ -337,20 +355,27 @@ static void motion_task(void *arg)
                     s_last_pitch = pitch;
                     const esp_err_t preload_yaw = servo_write_raw(SERVO_YAW_ID, yaw_raw);
                     const esp_err_t preload_pitch = servo_write_raw(SERVO_PITCH_ID, pitch_raw);
-                    if (preload_yaw == ESP_OK && preload_pitch == ESP_OK) {
+                    /* Feedback/UART can block. Recheck the lease using live
+                     * time before torque, not the loop's older timestamp. */
+                    tracking_expire_locked(esp_timer_get_time());
+                    yaw_tenths = (int)s_motion.yaw;
+                    pitch_tenths = (int)s_motion.pitch;
+                    if (s_motion.active && preload_yaw == ESP_OK && preload_pitch == ESP_OK) {
                         const esp_err_t torque_yaw = servo_torque(SERVO_YAW_ID, true);
                         const esp_err_t torque_pitch = servo_torque(SERVO_PITCH_ID, true);
                         if (torque_yaw == ESP_OK && torque_pitch == ESP_OK) {
                             s_torque_on = true;
                             s_feedback_warn_us = 0;
-                            moving = stackchan_motion_tick(&s_motion, now_us, dt_s,
+                            const int64_t live_us = esp_timer_get_time();
+                            tracking_expire_locked(live_us);
+                            moving = stackchan_motion_tick(&s_motion, live_us, dt_s,
                                                            &yaw_tenths, &pitch_tenths);
                         } else {
                             servo_torque(SERVO_YAW_ID, false);
                             servo_torque(SERVO_PITCH_ID, false);
                             ESP_LOGW(TAG, "could not enable servo torque");
                         }
-                    } else {
+                    } else if (s_motion.active) {
                         ESP_LOGW(TAG, "could not preload measured servo position");
                     }
                 }
@@ -514,6 +539,8 @@ esp_err_t stackchan_head_move_for_generation(int yaw_deg, int pitch_deg, int spe
         return ESP_ERR_INVALID_STATE;
     }
     if (!generation && priority >= STACKCHAN_MOVE_COMMAND) {
+        s_tracking_generation = 0;
+        s_tracking_deadline_us = 0;
         ++s_generation;
         if (!s_generation) ++s_generation;
     }
@@ -540,7 +567,7 @@ esp_err_t stackchan_head_center(void)
     return stackchan_head_look(0, 0);
 }
 
-static void stop_locked(void)
+static void cancel_motion_locked(void)
 {
     stackchan_motion_cancel(&s_motion);
     const int yaw = (int)s_motion.yaw;
@@ -551,6 +578,26 @@ static void stop_locked(void)
     s_last_pitch = pitch;
     s_torque_on = false;
     s_rest_since_us = esp_timer_get_time();
+}
+
+static void stop_locked(void)
+{
+    s_tracking_generation = 0;
+    s_tracking_deadline_us = 0;
+    cancel_motion_locked();
+}
+
+void stackchan_head_cancel_reply(void)
+{
+    if (!s_lock) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    ++s_generation;
+    if (!s_generation) ++s_generation;
+    if (s_motion.priority == STACKCHAN_MOVE_EXPRESSION ||
+        s_motion.priority == STACKCHAN_MOVE_PET)
+        cancel_motion_locked();
+    /* Tracking is explicitly user-enabled and is not owned by this turn. */
+    xSemaphoreGive(s_lock);
 }
 
 uint32_t stackchan_head_stop_and_generation(void)
@@ -600,9 +647,124 @@ esp_err_t stackchan_head_set_power(bool on)
     return ioe_update(IOE_GPIO_O_L, IOE_SERVO_POWER, on);
 }
 
+uint32_t stackchan_head_track_begin(void)
+{
+    if (!s_lock) return 0;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    uint32_t generation = 0;
+    if (s_present && s_calibrated && s_motion_task &&
+        !(s_motion.active && s_motion.priority >= STACKCHAN_MOVE_PET)) {
+        const uint32_t previous = s_tracking_generation;
+        stop_locked();
+        ++s_generation;
+        if (!s_generation) ++s_generation;
+        /* A lease token is independent of the reply gesture generation. */
+        uint32_t next = esp_random();
+        if (!next || next == previous) {
+            next = previous + 1;
+            if (!next) ++next;
+        }
+        s_tracking_generation = generation = next;
+        s_tracking_sequence = 0;
+        s_tracking_deadline_us = esp_timer_get_time() + 1000000;
+    }
+    xSemaphoreGive(s_lock);
+    return generation;
+}
+
+esp_err_t stackchan_head_track_stop(uint32_t generation)
+{
+    if (!s_lock) return ESP_ERR_NOT_FOUND;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (!generation || generation != s_tracking_generation) {
+        xSemaphoreGive(s_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    stop_locked();
+    ++s_generation;
+    if (!s_generation) ++s_generation;
+    xSemaphoreGive(s_lock);
+    return ESP_OK;
+}
+
+esp_err_t stackchan_head_track(uint32_t generation, uint32_t sequence,
+                                int yaw_tenths, int pitch_tenths, int ttl_ms)
+{
+    if (!s_lock) return ESP_ERR_NOT_FOUND;
+    if (!generation || !sequence || yaw_tenths < -600 || yaw_tenths > 600 ||
+        pitch_tenths < 0 || pitch_tenths > 600 || ttl_ms < 100 || ttl_ms > 1000)
+        return ESP_ERR_INVALID_ARG;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    const int64_t now_us = esp_timer_get_time();
+    tracking_expire_locked(now_us);
+    if (!s_present || !s_calibrated || !s_motion_task ||
+        generation != s_tracking_generation ||
+        sequence <= s_tracking_sequence) {
+        xSemaphoreGive(s_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    const bool accepted = stackchan_motion_set_target(
+        &s_motion, yaw_tenths, pitch_tenths, 200, STACKCHAN_MOVE_TRACKING,
+        now_us, (int64_t)ttl_ms * 1000);
+    if (accepted) {
+        if (!s_torque_on) s_motion.active = true;
+        s_tracking_sequence = sequence;
+        s_tracking_deadline_us = now_us + (int64_t)ttl_ms * 1000;
+    }
+    TaskHandle_t task = s_motion_task;
+    xSemaphoreGive(s_lock);
+    if (!accepted) return ESP_ERR_INVALID_STATE;
+    xTaskNotifyGive(task);
+    return ESP_OK;
+}
+
+/* No scanf integer overflow: each field is range checked before conversion. */
+static bool parse_tracking(const char *text, int64_t values[6])
+{
+    static const int64_t minimum[6] = {1, 1, 1, -600, 0, 100};
+    static const int64_t maximum[6] = {1, UINT32_MAX, UINT32_MAX, 600, 600, 1000};
+    for (int i = 0; i < 6; ++i) {
+        char *end;
+        errno = 0;
+        const long long value = strtoll(text, &end, 10);
+        if (errno || end == text || value < minimum[i] || value > maximum[i] ||
+            *end != (i == 5 ? '\0' : ',')) return false;
+        values[i] = value;
+        text = end + 1;
+    }
+    return true;
+}
+
 bool stackchan_head_console_command(const char *line)
 {
     if (!line) return false;
+    if (!strncmp(line, "head.track.stop=", 16)) {
+        char *end;
+        errno = 0;
+        const long long token = strtoll(line + 16, &end, 10);
+        const esp_err_t err = !errno && end != line + 16 && !*end &&
+            token > 0 && token <= UINT32_MAX
+            ? stackchan_head_track_stop((uint32_t)token) : ESP_ERR_INVALID_ARG;
+        printf("@head.track.stop %s\n", esp_err_to_name(err));
+        return true;
+    }
+    if (!strcmp(line, "head.track.begin")) {
+        printf("@head.track.begin {\"version\":1,\"generation\":%lu}\n",
+               (unsigned long)stackchan_head_track_begin());
+        return true;
+    }
+    if (!strncmp(line, "head.track=", 11)) {
+        int64_t values[6] = {0};
+        const esp_err_t err = parse_tracking(line + 11, values)
+            ? stackchan_head_track((uint32_t)values[1], (uint32_t)values[2],
+                                   (int)values[3], (int)values[4], (int)values[5])
+            : ESP_ERR_INVALID_ARG;
+        printf("@head.track {\"version\":1,\"generation\":%lu,\"sequence\":%lu,"
+               "\"accepted\":%s,\"error\":\"%s\"}\n",
+               (unsigned long)values[1], (unsigned long)values[2],
+               err == ESP_OK ? "true" : "false", esp_err_to_name(err));
+        return true;
+    }
     if (!strcmp(line, "head.calibrate")) {
         const esp_err_t err = stackchan_head_calibrate_current();
         printf("@head.calibrate %s\n", esp_err_to_name(err));
