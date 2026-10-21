@@ -47,6 +47,24 @@ class TrackingUSBTests(unittest.TestCase):
         with self.assertRaises(TrackingError):
             client.begin()
 
+    def test_fragmented_prefix_and_json_wait_for_newline(self):
+        opening, reply = begin(), ack()
+        stream = Stream([opening[:5], b'', opening[5:25], opening[25:],
+                         reply[:9], b'', reply[9:40], reply[40:]])
+        client = TrackingUSB(stream, stream.clock)
+        client.begin()
+        client.send(HeadTarget(0, 10, 500, False))
+        self.assertEqual(client.sequence, 1)
+        self.assertFalse(client.failed)
+
+    def test_unterminated_json_and_oversized_fragments_fail_closed(self):
+        for fragments in ([begin().rstrip(b'\n')], [b'x' * 200] * 3):
+            stream = Stream(fragments)
+            client = TrackingUSB(stream, stream.clock)
+            with self.assertRaises(TrackingError):
+                client.begin()
+            self.assertTrue(client.failed)
+
     def test_rejection_latches_and_cannot_resume(self):
         stream = Stream([begin(), ack(accepted=False)])
         client = TrackingUSB(stream, stream.clock)

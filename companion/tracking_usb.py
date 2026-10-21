@@ -17,18 +17,37 @@ class TrackingUSB:
         self.generation = 0
         self.sequence = 0
         self.failed = False
+        self._rx = bytearray()
+
+    def _read_line(self, deadline):
+        # pyserial readline() may return a fragment at its short read timeout.
+        # Keep fragments (including split prefixes) until a real line ending.
+        while self.clock() < deadline:
+            newline = self._rx.find(b'\n')
+            if newline >= 0:
+                if newline >= 511:
+                    raise TrackingError('设备响应过长')
+                line = bytes(self._rx[:newline + 1])
+                del self._rx[:newline + 1]
+                return line
+            remaining = 512 - len(self._rx)
+            if remaining <= 0:
+                raise TrackingError('设备响应过长')
+            chunk = self.stream.readline(remaining)
+            if not isinstance(chunk, (bytes, bytearray)) or len(chunk) > remaining:
+                raise TrackingError('设备响应格式错误或过长')
+            self._rx.extend(chunk)
+        return None
 
     def _request(self, command, prefix, matches=lambda message: True):
         data = ('>' + command + '\n').encode('ascii')
         if self.stream.write(data) != len(data):
             raise TrackingError('设备指令写入不完整')
         deadline = self.clock() + self.timeout
-        for _ in range(128):
-            if self.clock() >= deadline:
+        while self.clock() < deadline:
+            raw = self._read_line(deadline)
+            if raw is None:
                 break
-            raw = self.stream.readline(512)
-            if len(raw) >= 512:
-                raise TrackingError('设备响应过长')
             if not raw.startswith(prefix):
                 continue
             try:
