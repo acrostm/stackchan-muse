@@ -118,6 +118,20 @@ menu "Muse"
             sensor is only initialised on the first capture. Leave disabled
             to build without camera support.
 
+    config MUSE_HANDSFREE
+        bool "Experimental local wake and VAD on StackChan"
+        depends on MUSE_BOARD_M5STACK_STACKCHAN && SPIRAM && MUSE_HATCH
+        default n
+        help
+            Compile the local Hi, Stack Chan wake model and VAD adapter.
+            Requires the handsfree model partition and explicit runtime enable.
+            This is half-duplex; wake detection is suppressed during playback.
+
+    config SR_WN_WN9_HISTACKCHAN_TTS3
+        bool
+        default y if MUSE_HANDSFREE
+        depends on MUSE_HANDSFREE
+
     config MUSE_STACKCHAN_PENDING_LED
         bool "Flash the StackChan base LEDs while a Muse reply is pending"
         depends on MUSE_BOARD_M5STACK_STACKCHAN

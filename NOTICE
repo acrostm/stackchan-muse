@@ -8,3 +8,8 @@ The Jollybot avatar is NOT covered by Apache-2.0; no additional artwork rights
 are granted by this repository. Check its original terms before redistribution.
 firmware/esp32/dev_signing_key.pem is upstream's PUBLIC development fixture.
 It is not a production secret or a production signing identity.
+
+Optional local speech support uses Espressif ESP-SR 2.6.0, ESP-DL 3.3.14 and
+dl_fft 0.8.0. Original license texts are preserved under licenses/.
+ESP-SR uses the ESPRESSIF MIT License for Espressif products. ESP-DL and dl_fft
+use MIT; these components and model files are not relicensed by this repository.

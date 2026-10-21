@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "upstream": "https://github.com/espressif/esp-sr",
+  "commit": "78a923d29a45e4e1433b909d3da12ab5b0f994fc",
+  "component_version": "2.6.0",
+  "model": "wn9_histackchan_tts3",
+  "wake_phrase": "Hi, Stack Chan",
+  "partition_bytes": 2097152,
+  "assets": {
+    "_MODEL_INFO_": {
+      "bytes": 45,
+      "sha256": "96b2615dc51d471796fd5da91330c33733a8ff45ee465692cc630fddbda4572a"
+    },
+    "wn9_data": {
+      "bytes": 289665,
+      "sha256": "dbba353b4b5cb923984de753012671aa122cd4373739173956d2071ba9618eb3"
+    },
+    "wn9_index": {
+      "bytes": 1200,
+      "sha256": "5810ee84beac8e73b4080a7b765e09900627ff973f2654811dd6a8557f0769b4"
+    }
+  }
+}

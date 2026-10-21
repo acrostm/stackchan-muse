@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 
@@ -20,6 +21,9 @@ def package(build, output, board):
         if re.match(r'^CONFIG_.*(?:TOKEN|PASSWORD|SECRET|API_KEY|WIFI_SSID)=', line):
             if line.partition('=')[2].strip() != '""':
                 raise ValueError('Refusing to package personal network or provider configuration')
+    handsfree = bool(re.search(r'^CONFIG_MUSE_HANDSFREE=y$', sdkconfig, re.M))
+    if handsfree:
+        subprocess.run([sys.executable, str(root / 'tools/check_speech_model.py'), str(build)], check=True)
     args = json.loads((build / 'flasher_args.json').read_text())
     manifest = {'board': board, 'account_token_included': False,
                 'hardware_verified': False, 'flash_files': {},
@@ -51,6 +55,11 @@ def package(build, output, board):
             (staging / name).write_bytes((root / name).read_bytes())
         (staging / 'minimp3-LICENSE.txt').write_bytes(
             (root / 'firmware/esp32/components/minimp3/LICENSE').read_bytes())
+        if handsfree:
+            for name in ('ESP-SR-LICENSE.txt', 'ESP-DL-LICENSE.txt', 'DL-FFT-LICENSE.txt'):
+                (staging / name).write_bytes((root / 'licenses' / name).read_bytes())
+            (staging / 'speech-models.lock.json').write_bytes(
+                (root / 'docs/speech-models.lock.json').read_bytes())
         with tarfile.open(target, 'w:gz') as archive:
             for path in sorted(staging.iterdir()):
                 archive.add(path, arcname=path.name)
@@ -62,6 +71,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--board', choices=('stackchan', 'stackchan-camera', 'cores3', 'waveshare-c6-18'), required=True)
+    parser.add_argument('--board', choices=('stackchan', 'stackchan-camera', 'stackchan-handsfree', 'cores3', 'waveshare-c6-18'), required=True)
     args = parser.parse_args()
     package(args.build, args.output, args.board)

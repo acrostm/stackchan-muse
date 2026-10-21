@@ -41,6 +41,9 @@
 #include "muse_state.h"
 #include "muse_wifi.h"
 #include "sw_runtime.h"
+#if CONFIG_MUSE_HANDSFREE
+#include "muse_sr_engine.h"
+#endif
 #if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
 #include "boards/stackchan_expression.h"
 #include "boards/stackchan_head.h"
@@ -48,6 +51,9 @@
 
 static const char *TAG = "muse_voice";
 static atomic_bool s_stop_requested;
+#if CONFIG_MUSE_HANDSFREE
+static atomic_bool s_sr_probe_requested;
+#endif
 
 #define MAX_SECS 15
 #define TAIL_FRAMES (MUSE_AUDIO_RATE * 12 / 100)   /* capture lag + poll interval, stops before the release click */
@@ -973,6 +979,26 @@ static void voice_task(void *arg)
     bool pending_barge = false;
     muse_audio_selftest();
     for (;;) {
+#if CONFIG_MUSE_HANDSFREE
+        if (!pending_turn && !press_waiting() &&
+            atomic_exchange_explicit(&s_sr_probe_requested, false, memory_order_acq_rel)) {
+            const size_t before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+            const size_t psram_before = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+            const esp_err_t error = muse_sr_engine_init();
+            const size_t during = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+            const size_t psram_during = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+            muse_sr_engine_deinit();
+            printf("@sr.probe {\"kind\":\"model_init_only\",\"initialized\":%s,"
+                   "\"error\":\"%s\",\"internal_before\":%u,\"internal_during\":%u,"
+                   "\"internal_after\":%u,\"psram_before\":%u,\"psram_during\":%u,"
+                   "\"psram_after\":%u}\n",
+                   error == ESP_OK ? "true" : "false", esp_err_to_name(error),
+                   (unsigned)before, (unsigned)during,
+                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                   (unsigned)psram_before, (unsigned)psram_during,
+                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        }
+#endif
         bool wake = false;
         bool barge_in = false;
         uint32_t turn = pending_turn;
@@ -1142,6 +1168,18 @@ void muse_voice_request_chirp(void)
 {
     s_chirp = true;
     muse_state_nudge();
+}
+
+bool muse_voice_request_sr_probe(void)
+{
+#if CONFIG_MUSE_HANDSFREE
+    if (!s_queue) return false;
+    atomic_store_explicit(&s_sr_probe_requested, true, memory_order_release);
+    muse_state_nudge();
+    return true;
+#else
+    return false;
+#endif
 }
 
 void muse_voice_request_stop(void)

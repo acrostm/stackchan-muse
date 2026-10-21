@@ -55,6 +55,9 @@ if(CONFIG_MUSE_ENABLED)
         "muse_lv_mem.c"
         "muse_link.c"
         "muse_ble.c")
+    if(CONFIG_MUSE_HANDSFREE)
+        list(APPEND srcs "muse_handsfree_core.c" "muse_sr_engine.c" "muse_sr_partition.c")
+    endif()
     if(CONFIG_MUSE_HATCH)
         list(APPEND srcs "muse_chat.c" "muse_account_api.c" "muse_chat_session.cpp" "muse_tts_json.c" "muse_local_tts.cpp")
         list(APPEND embed "test_reply.mp3")   # muse_hatch_mp3_selftest
@@ -110,10 +113,13 @@ endif()
 set(muse_priv_requires
     esp_timer esp_driver_usb_serial_jtag esp_psram nvs_flash
     bt esp-tls mbedtls esp_app_format esp_http_client
-    noise_core minimp3 esp_http_server
+    noise_core minimp3 esp_http_server spi_flash
     esp_lcd esp_adc esp_driver_i2s esp_driver_ledc esp_driver_spi esp_driver_uart esp_wifi
     esp_driver_pcnt)
 list(APPEND muse_priv_requires camera)
+if(CONFIG_MUSE_HANDSFREE)
+    list(APPEND muse_priv_requires espressif__esp-sr)
+endif()
 
 idf_component_register(
     SRCS ${srcs}

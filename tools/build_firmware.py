@@ -24,15 +24,20 @@ def main():
     parser.add_argument("--with-local-tts", action="store_true", help="Configure private authenticated Chinese TTS bridge")
     parser.add_argument('--with-camera', action='store_true',
                         help='Enable the experimental CoreS3 GC0308 still camera')
+    parser.add_argument('--with-handsfree', action='store_true',
+                        help='Build experimental local wake/VAD with a model partition')
     args = parser.parse_args()
     if args.with_camera and args.board != 'stackchan':
         parser.error('--with-camera is only supported for --board stackchan')
+    if args.with_handsfree and args.board != 'stackchan':
+        parser.error('--with-handsfree is only supported for --board stackchan')
     idf = ROOT / '.toolchains/esp-idf'
     tools = ROOT / '.toolchains/tools'
     python_env = tools / 'python_env/idf6.0_py3.14_env'
     compiler = tools / 'tools/xtensa-esp-elf/esp-15.2.0_20251204/xtensa-esp-elf/bin'
     suffix = ('-' + args.board if args.board != 'stackchan' else '')
     suffix += '-camera' if args.with_camera else ''
+    suffix += '-handsfree' if args.with_handsfree else ''
     suffix += '-text' if args.text_replies else ''
     suffix += '-private' if args.with_token or args.with_local_tts else ''
     build = ROOT / ('build-musestack' + suffix)
@@ -79,6 +84,9 @@ def main():
         local_defaults.append('CONFIG_MUSE_TEXT_REPLIES=y')
     if args.with_camera:
         local_defaults.append('CONFIG_MUSE_STACKCHAN_CAMERA=y')
+    if args.with_handsfree:
+        local_defaults.extend(['CONFIG_MUSE_HANDSFREE=y',
+            'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_muse_handsfree.csv"'])
     if local_defaults:
         overlay = ROOT / ('.private/sdkconfig' + suffix + '.defaults')
         overlay.touch(mode=0o600, exist_ok=True)
@@ -105,7 +113,15 @@ def main():
                '-C', str(project), '-B', str(build), '-DIDF_TARGET=esp32s3',
                '-DSDKCONFIG=' + str(build / 'sdkconfig'),
                '-DSDKCONFIG_DEFAULTS=' + ';'.join(map(str, defaults)), 'build']
-    raise SystemExit(subprocess.run(command, env=env).returncode)
+    result = subprocess.run(command, env=env).returncode
+    if result == 0 and args.with_handsfree:
+        for checker in ('check_speech_model.py', 'check_dependency_lock.py'):
+            target = build if checker == 'check_speech_model.py' else project / 'dependencies.lock'
+            result = subprocess.run([str(python_env / 'bin/python'),
+                                     str(ROOT / 'tools' / checker), str(target)], env=env).returncode
+            if result:
+                break
+    raise SystemExit(result)
 
 
 if __name__ == '__main__':

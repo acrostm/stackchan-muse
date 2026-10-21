@@ -58,3 +58,23 @@ class BuildConfigTests(unittest.TestCase):
                 self.assertRaises(SystemExit) as end:
             module.main()
         self.assertEqual(end.exception.code, 2)
+
+    def test_handsfree_profile_has_separate_geometry_and_post_build_checks(self):
+        module = self._module()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / '.private').mkdir()
+            with patch.object(module, 'ROOT', root), patch.object(
+                    module.subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as run:
+                with patch('sys.argv', ['build_firmware.py', '--with-handsfree']), self.assertRaises(SystemExit) as end:
+                    module.main()
+            self.assertEqual(end.exception.code, 0)
+            overlay = (root / '.private/sdkconfig-handsfree.defaults').read_text()
+            self.assertIn('CONFIG_MUSE_HANDSFREE=y', overlay)
+            self.assertIn('partitions_muse_handsfree.csv', overlay)
+            commands = [call.args[0] for call in run.call_args_list]
+            self.assertTrue(any(any(str(arg).endswith('check_speech_model.py') for arg in command) for command in commands))
+            self.assertTrue(any(any(str(arg).endswith('check_dependency_lock.py') for arg in command) for command in commands))
+        with patch('sys.argv', ['build_firmware.py', '--board', 'cores3', '--with-handsfree']), self.assertRaises(SystemExit) as end:
+            module.main()
+        self.assertEqual(end.exception.code, 2)

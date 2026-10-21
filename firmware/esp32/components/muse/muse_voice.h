@@ -49,6 +49,8 @@ void muse_voice_request_loopback(void);
 void muse_voice_request_mp3test(void);
 /* Bench test: synthesize and speak a fixed phrase through the local TTS. */
 void muse_voice_request_tts_test(void);
+/* Bench only: queue model init/deinit on the voice owner; no recording. */
+bool muse_voice_request_sr_probe(void);
 
 /* Asleep with nothing to play: codecs off, Wi-Fi dozing. */
 bool muse_voice_resting(void);

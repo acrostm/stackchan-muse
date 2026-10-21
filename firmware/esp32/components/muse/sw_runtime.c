@@ -6,6 +6,7 @@
 #include "esp_timer.h"
 #include "muse_link.h"
 #include "muse_notice.h"
+#include "muse_voice.h"
 #include "muse_ptt_guard.h"
 #include "host/ble_gap.h"
 #include "host/ble_hs.h"
@@ -91,6 +92,10 @@ void sw_tts_status(char *out, size_t cap)
 extern bool sw_voice_probe(void);
 bool sw_console_command(const char *line)
 {
+    if (!strcmp(line, "sr.probe")) {
+        printf("@sr.probe %s\n", muse_voice_request_sr_probe() ? "queued" : "unavailable");
+        return true;
+    }
 #if !CONFIG_SPIRAM
     if (!strcmp(line, "sw.cancel")) {
         sw_capture_cancel();
