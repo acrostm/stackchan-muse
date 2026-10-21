@@ -1084,7 +1084,7 @@ static void hf_record(void)
 static void hf_idle(bool fresh)
 {
     if (!s_hf.enabled) return;
-    const bool blocked = muse_state_asleep() || s_monitor || s_held_count ||
+    const bool blocked = s_monitor || s_held_count ||
                          muse_notice_pending() || !muse_hatch_ready() || press_waiting();
     if (blocked) {
         muse_handsfree_tick(&s_hf, hf_now(), false, 0, true, false);
