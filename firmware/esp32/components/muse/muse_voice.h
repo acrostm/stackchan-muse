@@ -58,3 +58,6 @@ bool muse_voice_resting(void);
 /* Voice notes recorded out of Hatch's reach wait to go, the oldest from the
  * last half hour: worth keeping Wi-Fi up for. */
 bool muse_voice_notes_waiting(void);
+
+/* Explicit runtime opt-in; defaults off after each boot. Disable cancels speech. */
+bool muse_voice_set_handsfree(bool enabled);

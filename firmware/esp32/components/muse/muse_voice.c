@@ -43,6 +43,7 @@
 #include "sw_runtime.h"
 #if CONFIG_MUSE_HANDSFREE
 #include "muse_sr_engine.h"
+#include "muse_handsfree_core.h"
 #endif
 #if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
 #include "boards/stackchan_expression.h"
@@ -53,6 +54,8 @@ static const char *TAG = "muse_voice";
 static atomic_bool s_stop_requested;
 #if CONFIG_MUSE_HANDSFREE
 static atomic_bool s_sr_probe_requested;
+static atomic_bool s_hf_requested;
+static muse_handsfree_t s_hf;
 #endif
 
 #define MAX_SECS 15
@@ -148,14 +151,17 @@ static void pre_reset(void)
 {
     s_pre_fill = 0;
     s_settle = SETTLE_CHUNKS;
+#if CONFIG_MUSE_HANDSFREE
+    muse_sr_engine_reset();
+#endif
 }
 
 /* One 20 ms idle read: feeds the pre-roll ring and the settings mic meter. */
-static void idle_capture(void)
+static bool idle_capture(void)
 {
     if (muse_audio_read(s_chunk, MUSE_AUDIO_CHUNK) != ESP_OK) {
         vTaskDelay(pdMS_TO_TICKS(20));
-        return;
+        return false;
     }
     if (s_monitor) {
         float db = muse_audio_dbfs(s_chunk, MUSE_AUDIO_CHUNK);
@@ -163,7 +169,7 @@ static void idle_capture(void)
     }
     if (s_settle > 0) {
         s_settle--;
-        return;
+        return false;
     }
     pre_chunk_t *c = &s_pre[s_pre_next];
 #if MUSE_LOW_MEM
@@ -174,6 +180,7 @@ static void idle_capture(void)
 #endif
     s_pre_next = (s_pre_next + 1) % PRE_CHUNKS;
     s_pre_fill = s_pre_fill < PRE_CHUNKS ? s_pre_fill + 1 : PRE_CHUNKS;
+    return true;
 }
 
 /* Non-blocking: drain events up to a later press, leaving that press queued so
@@ -973,14 +980,145 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
     return false;
 }
 
+#if CONFIG_MUSE_HANDSFREE
+static int64_t hf_now(void) { return esp_timer_get_time() / 1000; }
+
+/* Only the voice owner changes model state. Callers post the desired setting. */
+static void hf_apply(void)
+{
+    const bool wanted = atomic_load_explicit(&s_hf_requested, memory_order_acquire);
+    if (wanted == s_hf.enabled) return;
+    if (!wanted) {
+        muse_handsfree_enable(&s_hf, false, hf_now());
+        muse_sr_engine_deinit();
+        pre_reset();
+        return;
+    }
+    const esp_err_t error = muse_sr_engine_init();
+    if (error != ESP_OK) {
+        atomic_store_explicit(&s_hf_requested, false, memory_order_release);
+        go_idle("WAKE MODEL UNAVAILABLE");
+        return;
+    }
+    muse_handsfree_enable(&s_hf, true, hf_now());
+    muse_sr_engine_reset();
+    pre_reset();
+}
+
+static void hf_cancel(void)
+{
+    muse_handsfree_tick(&s_hf, hf_now(), false, 0, false, true);
+    muse_sr_engine_reset();
+}
+
+/* A qualified automatic note never enters the saved-note retry queue. PTT,
+ * disable and face stop take priority before upload and throughout the reply. */
+static void hf_record(void)
+{
+    const uint32_t generation = s_hf.generation;
+    if (!muse_hatch_ready() || s_held_count || !can_record()) {
+        hf_cancel();
+        return;
+    }
+#if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
+    stackchan_head_cancel_reply();
+#endif
+    s_rec_n = s_sent = 0;
+    s_live = s_tried = false;
+    muse_state_set_asleep(false);
+    muse_state_set_reply_pending(false);
+    muse_state_set_mode(MUSE_MODE_LISTENING);
+    muse_state_set_caption("LISTENING...");
+    /* Preserve the first classified chunk of a follow-up utterance. */
+    memcpy(s_rec, s_chunk, sizeof(s_chunk));
+    s_rec_n = MUSE_AUDIO_CHUNK;
+    bool qualified = false;
+    for (;;) {
+        if (!atomic_load_explicit(&s_hf_requested, memory_order_acquire) ||
+            take_stop_request() || press_waiting() || !muse_hatch_ready()) break;
+        if (muse_audio_read(s_chunk, MUSE_AUDIO_CHUNK) != ESP_OK) break;
+        muse_sr_result_t result;
+        if (muse_sr_engine_feed(s_chunk, MUSE_AUDIO_CHUNK, false, true, &result) != ESP_OK) break;
+        if (s_rec_n + MUSE_AUDIO_CHUNK <= MAX_FRAMES) {
+            memcpy(s_rec + s_rec_n, s_chunk, sizeof(s_chunk));
+            s_rec_n += MUSE_AUDIO_CHUNK;
+        }
+        muse_state_set_level(muse_audio_level(s_chunk, MUSE_AUDIO_CHUNK));
+        const muse_hf_event_t event = muse_handsfree_tick(&s_hf, hf_now(), false,
+                                                        result.speech_ms, false, false);
+        if (event & MUSE_HF_DROP) break;
+        if (event & MUSE_HF_END) { qualified = true; break; }
+    }
+    muse_state_set_level(0);
+    if (!qualified || generation != s_hf.generation || press_waiting() ||
+        !atomic_load_explicit(&s_hf_requested, memory_order_acquire) ||
+        take_stop_request() || !muse_hatch_ready()) {
+        drop_rec();
+        hf_cancel();
+        pre_reset();
+        go_idle("");
+        return;
+    }
+    muse_wifi_power(MUSE_WIFI_FULL);
+    muse_hatch_turn_begin();
+    const feed_t fed = feed_rest(s_rec, s_rec_n, &s_sent, true);
+    bool delivered = false, stopped = false, interrupted = false;
+    uint32_t press = 0;
+    if (fed == FED) interrupted = hatch_reply(&delivered, &press, &stopped);
+    if (fed != FED || stopped || interrupted) muse_hatch_turn_cancel();
+    drop_rec();
+    /* No follow-up window until actual speaker drain is observable. Merely
+     * accepting PCM/HTTP success must never reopen the microphone. */
+    muse_handsfree_reply_done(&s_hf, generation, hf_now(),
+                             fed == FED && delivered && !stopped && !interrupted, false);
+    muse_sr_engine_reset();
+    pre_reset();
+    if (press) {
+        /* hatch_reply consumed the press: return it to the normal PTT owner. */
+        muse_input_event_t ev = {.type = MUSE_PTT_DOWN, .turn = press};
+        if (xQueueSendToFront(s_queue, &ev, 0) != pdTRUE) muse_ptt_retire(press);
+    }
+    go_idle("");
+}
+
+static void hf_idle(bool fresh)
+{
+    if (!s_hf.enabled) return;
+    const bool blocked = muse_state_asleep() || s_monitor || s_held_count ||
+                         muse_notice_pending() || !muse_hatch_ready() || press_waiting();
+    if (blocked) {
+        muse_handsfree_tick(&s_hf, hf_now(), false, 0, true, false);
+        muse_sr_engine_reset();
+        return;
+    }
+    if (!fresh) return;
+    muse_sr_result_t result;
+    const bool wake = s_hf.phase == MUSE_HF_IDLE || s_hf.phase == MUSE_HF_FOLLOW;
+    if (muse_sr_engine_feed(s_chunk, MUSE_AUDIO_CHUNK, wake,
+                            s_hf.phase == MUSE_HF_FOLLOW, &result) != ESP_OK) {
+        atomic_store_explicit(&s_hf_requested, false, memory_order_release);
+        hf_cancel();
+        return;
+    }
+    if (muse_handsfree_tick(&s_hf, hf_now(), result.wake, result.speech_ms,
+                            false, false) & MUSE_HF_START) hf_record();
+}
+#endif
+
 static void voice_task(void *arg)
 {
     uint32_t pending_turn = 0;
     bool pending_barge = false;
     muse_audio_selftest();
+#if CONFIG_MUSE_HANDSFREE
+    muse_handsfree_init(&s_hf, false, hf_now());
+#endif
     for (;;) {
 #if CONFIG_MUSE_HANDSFREE
-        if (!pending_turn && !press_waiting() &&
+        hf_apply();
+#endif
+#if CONFIG_MUSE_HANDSFREE
+        if (!s_hf.enabled && !pending_turn && !press_waiting() &&
             atomic_exchange_explicit(&s_sr_probe_requested, false, memory_order_acq_rel)) {
             const size_t before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
             const size_t psram_before = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
@@ -1003,8 +1141,14 @@ static void voice_task(void *arg)
         bool barge_in = false;
         uint32_t turn = pending_turn;
         pending_turn = 0;
-        if (!turn && muse_state_mode(NULL) == MUSE_MODE_IDLE)
-            (void)take_stop_request();
+        if (!turn && muse_state_mode(NULL) == MUSE_MODE_IDLE) {
+            const bool stopped = take_stop_request();
+#if CONFIG_MUSE_HANDSFREE
+            if (stopped) hf_cancel();
+#else
+            (void)stopped;
+#endif
+        }
         if (turn) {
             barge_in = pending_barge;
             pending_barge = false;
@@ -1015,6 +1159,9 @@ static void voice_task(void *arg)
             bool battery = muse_state_on_battery();
             bool rest = asleep && battery && !s_chirp && !s_mp3test && !s_loopback &&
                         !s_tts_test && !muse_notice_pending();
+#if CONFIG_MUSE_HANDSFREE
+            rest = rest && !s_hf.enabled;
+#endif
 #if HOLD_NOTES
             /* A press goes first: send_held() leaves it queued and returns
              * without backing off, so retrying before it's read would spin. */
@@ -1078,7 +1225,12 @@ static void voice_task(void *arg)
                 continue;
             }
             /* The 20 ms read paces this loop. */
-            idle_capture();
+            const bool fresh = idle_capture();
+#if CONFIG_MUSE_HANDSFREE
+            hf_idle(fresh);
+#else
+            (void)fresh;
+#endif
             if (xQueueReceive(s_queue, &ev, 0) != pdTRUE) {
                 continue;
             }
@@ -1168,6 +1320,20 @@ void muse_voice_request_chirp(void)
 {
     s_chirp = true;
     muse_state_nudge();
+}
+
+bool muse_voice_set_handsfree(bool enabled)
+{
+#if CONFIG_MUSE_HANDSFREE
+    if (!s_queue) return false;
+    atomic_store_explicit(&s_hf_requested, enabled, memory_order_release);
+    if (!enabled) muse_voice_request_stop();
+    muse_state_nudge();
+    return true;
+#else
+    (void)enabled;
+    return false;
+#endif
 }
 
 bool muse_voice_request_sr_probe(void)
