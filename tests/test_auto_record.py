@@ -50,6 +50,7 @@ static feed_t feed_result;
 typedef struct {bool wake; uint32_t speech_ms;} muse_sr_result_t;
 typedef struct {int type; uint32_t turn;} muse_input_event_t;
 static int64_t hf_now(void) {return now;}
+static void hf_publish(void) {}
 static bool muse_hatch_ready(void) {return ready;}
 static bool muse_settings_speaker_on(void) {return true;}
 static int muse_settings_volume(void) {return 50;}
