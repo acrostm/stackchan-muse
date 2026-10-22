@@ -20,6 +20,9 @@ class BuildConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / '.private').mkdir()
+            (root / 'docs').mkdir()
+            (root / 'docs/firmware-dependencies.lock.yml').write_text(
+                (Path(__file__).resolve().parents[1] / 'docs/firmware-dependencies.lock.yml').read_text())
             (root / '.private/config.json').write_text(json.dumps({'network': {'tls_relay_host': '192.168.1.5'}}))
             build = root / 'build-musestack-cores3'
             build.mkdir()
@@ -40,6 +43,9 @@ class BuildConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / '.private').mkdir()
+            (root / 'docs').mkdir()
+            (root / 'docs/firmware-dependencies.lock.yml').write_text(
+                (Path(__file__).resolve().parents[1] / 'docs/firmware-dependencies.lock.yml').read_text())
             build = root / 'build-musestack-camera'
             build.mkdir()
             with patch.object(module, 'ROOT', root), patch.object(
@@ -64,6 +70,9 @@ class BuildConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / '.private').mkdir()
+            (root / 'docs').mkdir()
+            (root / 'docs/firmware-dependencies.lock.yml').write_text(
+                (Path(__file__).resolve().parents[1] / 'docs/firmware-dependencies.lock.yml').read_text())
             with patch.object(module, 'ROOT', root), patch.object(
                     module.subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as run:
                 with patch('sys.argv', ['build_firmware.py', '--with-handsfree']), self.assertRaises(SystemExit) as end:
@@ -72,6 +81,9 @@ class BuildConfigTests(unittest.TestCase):
             overlay = (root / '.private/sdkconfig-handsfree.defaults').read_text()
             self.assertIn('CONFIG_MUSE_HANDSFREE=y', overlay)
             self.assertIn('partitions_muse_handsfree.csv', overlay)
+            build_env = run.call_args_list[0].kwargs['env']
+            self.assertIn('IDF_COMPONENT_CONSTRAINT_FILES', build_env)
+            self.assertNotIn('IDF_COMPONENT_CONSTRAINTS', build_env)
             commands = [call.args[0] for call in run.call_args_list]
             self.assertTrue(any(any(str(arg).endswith('check_speech_model.py') for arg in command) for command in commands))
             self.assertTrue(any(any(str(arg).endswith('check_dependency_lock.py') for arg in command) for command in commands))

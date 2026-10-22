@@ -6,6 +6,7 @@ import ipaddress
 import os
 from pathlib import Path
 import subprocess
+import sys
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,7 +102,15 @@ def main():
                      and not any(line == '# ' + key + ' is not set' for key in keys)]
             generated.write_text('\n'.join(lines + local_defaults) + '\n')
             generated.chmod(0o600)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from check_dependency_lock import constraints
+    import yaml
+    constraint_file = build / "reviewed.constraints"
+    constraint_file.write_text(constraints(yaml.safe_load(
+        (ROOT / "docs/firmware-dependencies.lock.yml").read_text())))
     env = dict(os.environ)
+    env.pop("IDF_COMPONENT_CONSTRAINTS", None)
+    env["IDF_COMPONENT_CONSTRAINT_FILES"] = str(constraint_file)
     if not args.online:
         for key in ('HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'https_proxy', 'http_proxy', 'all_proxy'):
             env.pop(key, None)
