@@ -51,6 +51,13 @@ jobs:
             profile: m5stack-stackchan
             target: esp32s3
             extra_config: ""
+          - board: stackchan-handsfree
+            profile: m5stack-stackchan
+            target: esp32s3
+            extra_config: |
+              CONFIG_MUSE_STACKCHAN_CAMERA=y
+              CONFIG_MUSE_HANDSFREE=y
+              CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_muse_handsfree.csv"
           - board: stackchan-camera
             profile: m5stack-stackchan
             target: esp32s3
@@ -92,6 +99,12 @@ jobs:
         run: |
           . "$IDF_PATH/export.sh" > /dev/null
           python tools/check_dependency_lock.py firmware/esp32/dependencies.lock --target "$TARGET"
+      - name: Verify pinned speech model
+        if: matrix.board == 'stackchan-handsfree'
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh" > /dev/null
+          python tools/check_speech_model.py firmware/esp32/build-ci
       - name: Package allowlisted artifacts
         shell: bash
         env:
