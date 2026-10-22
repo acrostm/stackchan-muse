@@ -963,18 +963,18 @@ static bool can_record(void)
 /* Returns true when a new talk press interrupted playback; the caller must
  * keep that press and enter the normal recording path without losing it. */
 static bool speak_tts_text(const char *text, bool notification, uint32_t *press_turn,
-                           bool explicit_read, bool *completed)
+                           bool explicit_read, bool *completed, bool announce, int64_t overall_deadline)
 {
     if (completed) *completed = false;
     static int16_t pcm[MUSE_AUDIO_CHUNK];
     if (take_stop_request()) return false;
     if (notification && !explicit_read && !muse_notice_automatic_allowed()) return false;
-    char caption[96];
+    char caption[MUSE_CAPTION_MAX + 1];
     ESP_LOGI(TAG, "%s TTS start (%u chars)",
              notification ? "notification" : "speaker-test", (unsigned)strlen(text));
-    sw_text_copy(caption, sizeof(caption), text);
+    muse_notice_text_chunk(text, 0, caption, sizeof(caption));
 #if CONFIG_MUSE_BOARD_M5STACK_STACKCHAN
-    if (notification) stackchan_express_reply(text);
+    if (notification && announce) stackchan_express_reply(text);
 #endif
     if (!muse_settings_speaker_on()) {
         muse_state_set_caption("%s", caption);
@@ -982,7 +982,7 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
         go_idle(caption);
         return false;
     }
-    if (notification) {
+    if (notification && announce) {
         s_output_tail = true;
         muse_audio_chirp(1);
         pre_reset();
@@ -994,12 +994,13 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
         go_idle(caption);
         return false;
     }
-    muse_state_set_mode(MUSE_MODE_SPEAKING);
-    muse_state_set_caption("%s", notification ? "NOTIFICATION" : "TTS SPEAKER TEST");
+    muse_state_set_mode(MUSE_MODE_THINKING);
+    muse_state_set_caption("%s", notification ? caption : "TTS SPEAKER TEST");
     bool heard = false;
     bool interrupted = false;
     size_t played = 0;
     int64_t deadline = esp_timer_get_time() + 45LL * 1000000;
+    if (overall_deadline > 0 && overall_deadline < deadline) deadline = overall_deadline;
     while (esp_timer_get_time() < deadline) {
         if (take_stop_request() || (notification &&
             (!muse_settings_speaker_on() || muse_settings_volume() <= 0 ||
@@ -1023,6 +1024,7 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
                 go_idle("SPEAKER WRITE FAILED");
                 return false;
             }
+            if (!heard) muse_state_set_mode(MUSE_MODE_SPEAKING);
             played += n;
             heard = true;
         }
@@ -1050,6 +1052,31 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
     }
     if (notification && heard) muse_state_set_reply_pending(true);
     go_idle(heard ? "" : "TTS FAILED OR BUSY");
+    return false;
+}
+
+/* All fragments share the voice owner and one immutable claimed message.
+ * A failed/cancelled fragment stops the sequence; no prefix is acknowledged
+ * as the complete notification. Only the first fragment announces itself. */
+static bool speak_notice_message(const char *text, bool explicit_read,
+                                 uint32_t *press_turn, bool *completed)
+{
+    *completed = false;
+    size_t offset = 0;
+    char fragment[MUSE_NOTICE_SPEECH_BYTES + 1];
+    const int64_t deadline = esp_timer_get_time() + 20LL * 60 * 1000000;
+    while (text[offset] && esp_timer_get_time() < deadline) {
+        size_t n = muse_notice_text_chunk(text, offset, fragment, sizeof(fragment));
+        if (!n) return false;
+        bool part_done = false;
+        bool interrupted = speak_tts_text(fragment, true, press_turn, explicit_read,
+                                           &part_done, offset == 0, deadline);
+        memset(fragment, 0, sizeof(fragment));
+        if (interrupted) return true;
+        if (!part_done) return false;
+        offset += n;
+    }
+    *completed = text[0] && !text[offset];
     return false;
 }
 
@@ -1302,23 +1329,22 @@ static void voice_task(void *arg)
                 muse_audio_loopback_test(muse_settings_volume());
                 pre_reset();
             }
-            char notice[MUSE_NOTICE_TEXT_MAX + 1];
             bool explicit_read = false;
             const muse_notice_status_t notice_status = muse_notice_status();
             if (notice_status.unread) muse_state_set_reply_pending(true);
-            if (muse_notice_take_next(notice, sizeof(notice), &explicit_read)) {
+            const char *notice = muse_notice_claim(&explicit_read);
+            if (notice) {
                 muse_state_set_asleep(false);
                 bool played = false;
-                speak_tts_text(notice, true, &pending_turn, explicit_read, &played);
+                speak_notice_message(notice, explicit_read, &pending_turn, &played);
                 muse_notice_finish(played);
                 if (pending_turn) pending_barge = true;
-                memset(notice, 0, sizeof(notice));
                 continue;
             }
             if (s_tts_test) {
                 s_tts_test = false;
                 speak_tts_text("你好，我是你的 Muse。中文语音播放测试成功。",
-                               false, &pending_turn, false, NULL);
+                               false, &pending_turn, false, NULL, false, 0);
                 if (pending_turn) pending_barge = true;
                 continue;
             }

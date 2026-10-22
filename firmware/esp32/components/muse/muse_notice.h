@@ -20,12 +20,16 @@ typedef struct {
     bool can_read;
     bool read_requested;
     bool reading;
+    uint32_t rejected;
+    unsigned max_text_bytes;
+    const char *rejection;
 } muse_notice_status_t;
 
 muse_notice_status_t muse_notice_status(void);
 esp_err_t muse_notice_set_policy(const muse_notice_policy_t *policy);
 bool muse_notice_request_read(void);
-bool muse_notice_take_next(char *out, size_t cap, bool *explicit_read);
+/* Borrowed immutable text; valid until the sole voice owner calls finish. */
+const char *muse_notice_claim(bool *explicit_read);
 bool muse_notice_automatic_allowed(void);
 /* Nonblocking; the queue owner applies it before any later automatic read. */
 void muse_notice_cancel_pending(void);

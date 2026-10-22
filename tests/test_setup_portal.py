@@ -54,6 +54,7 @@ await $('#notice-read').handlers.click();assert.equal($('#notice-read').disabled
 noticeStatus={...noticeStatus,unread:1,read_requested:false};await poll();assert.equal($('#notice-read').disabled,false);
 $('#notice-start').value='23:45';await poll();assert.equal($('#notice-start').value,'23:45');
 failNotices=true;await $('#notice-save').handlers.click();assert.match($('#notice-status').textContent,/刷新状态确认/);failNotices=false;
+noticeStatus={...noticeStatus,rejected:1,rejection:'too_long'};await poll();assert.match($('#notice-status').textContent,/1 条通知未接收：正文超出接收上限/);
 const count=noticePosts.length;$('#notice-offset').value='NaN';await $('#notice-save').handlers.click();assert.equal(noticePosts.length,count);$('#notice-offset').value='480';
 
 assert.equal($('#handsfree-panel').hidden,false);
