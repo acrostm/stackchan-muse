@@ -17,12 +17,20 @@ class Element {
 }
 const elements=new Map();
 const document={querySelector(id){if(!elements.has(id))elements.set(id,new Element());return elements.get(id);},createElement(){return new Element();}};
+let noticeStatus={ready:true,clock_ready:true,quiet_now:false,can_read:true,read_requested:false,unread:2,muted:false,quiet_enabled:false,start_minute:1320,end_minute:480,utc_offset_minute:480},noticePosts=[],failNotices=false;
 let poll,hfStatus={supported:true,requested:false,enabled:false,state:'off'},hfPosts=[],failHF=false;
 const window={addEventListener(){},setInterval(fn){poll=fn;return 1;},clearInterval(){}};const localStorage={getItem(){return null;},setItem(){}};
 class Option {constructor(name,id){this.text=name;this.value=id;}}
 class FormData {constructor(){return new Map(['ssid','password','sdk_token','api_key','app_id','access_key','speaker','proxy_host','proxy_port'].map(name=>[name,document.querySelector('#'+({'proxy_host':'proxy-host','proxy_port':'proxy-port'}[name]||name)).value]));}}
 let posted;
 async function fetch(path,options){
+ if(path==='/notice-policy'||path==='/notice-read'){
+  assert.equal(options.headers['X-Setup-Token'],'fixture');const data=JSON.parse(options.body);noticePosts.push({path,data});
+  if(failNotices)throw Error('disconnected');
+  if(path==='/notice-read'){assert.deepEqual(data,{});noticeStatus={...noticeStatus,read_requested:true};}
+  else {assert.deepEqual(Object.keys(data),['muted','quiet_enabled','start_minute','end_minute','utc_offset_minute']);noticeStatus={...noticeStatus,...data,quiet_now:data.muted};}
+  return {ok:true,json:async()=>noticeStatus};
+ }
  if(path==='/handsfree'){
   const data=JSON.parse(options.body);assert.deepEqual(Object.keys(data),['enabled']);assert.equal(typeof data.enabled,'boolean');assert.equal(options.headers['X-Setup-Token'],'fixture');hfPosts.push(data.enabled);
   if(failHF)throw Error('connection lost');
@@ -30,12 +38,24 @@ async function fetch(path,options){
   return {ok:true,json:async()=>hfStatus};
  }
  if(path==='/config'){posted=JSON.parse(options.body);return {ok:true,json:async()=>({ok:true})};}
- assert.equal(path,'/session');return {ok:true,json:async()=>({handsfree:hfStatus,csrf:'fixture',wifi_ssid:'home',wifi_saved:['home','phone'],sdk_configured:true,tts_configured:true,speaker:'zh_female_vv_uranus_bigtts',proxy_profiles:[{ssid:'home',host:'192.168.1.4',port:7897,enabled:true}]})};
+ assert.equal(path,'/session');return {ok:true,json:async()=>({notices:noticeStatus,handsfree:hfStatus,csrf:'fixture',wifi_ssid:'home',wifi_saved:['home','phone'],sdk_configured:true,tts_configured:true,speaker:'zh_female_vv_uranus_bigtts',proxy_profiles:[{ssid:'home',host:'192.168.1.4',port:7897,enabled:true}]})};
 }
 (async()=>{
 '''
         checks=r'''
 assert(await settingsReady);
+assert.equal($('#notice-start').value,'22:00');assert.equal($('#notice-end').value,'08:00');
+assert.match($('#notice-status').textContent,/未读 2/);
+$('#notice-muted').checked=true;$('#notice-quiet').checked=true;$('#notice-start').value='23:15';$('#notice-end').value='07:30';$('#notice-offset').value='345';
+await $('#notice-save').handlers.click();
+assert.deepEqual(noticePosts[0].data,{muted:true,quiet_enabled:true,start_minute:1395,end_minute:450,utc_offset_minute:345});
+assert.match($('#notice-status').textContent,/已静音/);
+await $('#notice-read').handlers.click();assert.equal($('#notice-read').disabled,true);assert.match($('#notice-status').textContent,/已排队/);
+noticeStatus={...noticeStatus,unread:1,read_requested:false};await poll();assert.equal($('#notice-read').disabled,false);
+$('#notice-start').value='23:45';await poll();assert.equal($('#notice-start').value,'23:45');
+failNotices=true;await $('#notice-save').handlers.click();assert.match($('#notice-status').textContent,/刷新状态确认/);failNotices=false;
+const count=noticePosts.length;$('#notice-offset').value='NaN';await $('#notice-save').handlers.click();assert.equal(noticePosts.length,count);$('#notice-offset').value='480';
+
 assert.equal($('#handsfree-panel').hidden,false);
 await $('#handsfree-on').handlers.click();
 assert.equal($('#handsfree-status').textContent,'正在加载本地模型…');

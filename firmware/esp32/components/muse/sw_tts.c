@@ -24,7 +24,7 @@ static QueueHandle_t jobs;
 static SemaphoreHandle_t lock;
 static StreamBufferHandle_t pcm;
 static atomic_uint generation;
-static bool ended = true;
+static bool ended = true, succeeded;
 typedef struct {
     uint32_t gen;
     int64_t deadline;
@@ -43,6 +43,7 @@ void sw_tts_cancel(void)
     atomic_fetch_add(&generation, 1);
     xStreamBufferReset(pcm);
     ended = true;
+    succeeded = false;
     xSemaphoreGive(lock);
 }
 
@@ -60,6 +61,7 @@ bool sw_tts_start(const char *text)
     job.gen = atomic_fetch_add(&generation, 1) + 1;
     xStreamBufferReset(pcm);
     ended = false;
+    succeeded = false;
     xQueueOverwrite(jobs, &job);
     xSemaphoreGive(lock);
     return true;
@@ -83,6 +85,15 @@ bool sw_tts_done(void)
     bool done = ended && xStreamBufferIsEmpty(pcm);
     xSemaphoreGive(lock);
     return done;
+}
+
+bool sw_tts_succeeded(void)
+{
+    if (!lock) return false;
+    xSemaphoreTake(lock, portMAX_DELAY);
+    bool ok = ended && succeeded && xStreamBufferIsEmpty(pcm);
+    xSemaphoreGive(lock);
+    return ok;
 }
 
 static bool current(response_t *r)
@@ -235,6 +246,7 @@ static void worker(void *arg)
         xSemaphoreTake(lock, portMAX_DELAY);
         if (job.gen == atomic_load(&generation)) {
             ended = true;
+            succeeded = ok;
             /* Keep any already decoded speech; captions survive a TTS failure. */
             sw_tts_set_status(ok ? "Ready" : "TTS failed; text retained");
         }

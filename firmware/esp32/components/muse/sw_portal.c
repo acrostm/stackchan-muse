@@ -10,6 +10,7 @@
 #include "muse_wifi.h"
 #include "muse_state.h"
 #include "muse_voice.h"
+#include "muse_notice.h"
 #include "cJSON.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -84,6 +85,77 @@ static esp_err_t page(httpd_req_t *r)
     return httpd_resp_send(r, (const char *)sw_html_start, sw_html_end - sw_html_start);
 }
 
+static void notice_json(cJSON *body)
+{
+    const muse_notice_status_t status = muse_notice_status();
+    cJSON_AddBoolToObject(body, "ready", status.ready);
+    cJSON_AddBoolToObject(body, "clock_ready", status.clock_ready);
+    cJSON_AddBoolToObject(body, "quiet_now", status.quiet_now);
+    cJSON_AddBoolToObject(body, "can_read", status.can_read);
+    cJSON_AddBoolToObject(body, "read_requested", status.read_requested);
+    cJSON_AddBoolToObject(body, "reading", status.reading);
+    cJSON_AddNumberToObject(body, "unread", status.unread);
+    cJSON_AddBoolToObject(body, "muted", status.policy.muted);
+    cJSON_AddBoolToObject(body, "quiet_enabled", status.policy.quiet_enabled);
+    cJSON_AddNumberToObject(body, "start_minute", status.policy.start_minute);
+    cJSON_AddNumberToObject(body, "end_minute", status.policy.end_minute);
+    cJSON_AddNumberToObject(body, "utc_offset_minute", status.policy.utc_offset_minute);
+}
+
+static bool notice_integer(cJSON *value, int minimum, int maximum)
+{
+    return cJSON_IsNumber(value) && value->valuedouble >= minimum &&
+           value->valuedouble <= maximum && value->valuedouble == value->valueint;
+}
+
+static esp_err_t notice_control(httpd_req_t *r)
+{
+    char token[40];
+    if (!allowed(r) || httpd_req_get_hdr_value_str(r, "X-Setup-Token", token, sizeof(token)) != ESP_OK || strcmp(token, csrf))
+        return reply(r, "403 Forbidden", "{}");
+    if (r->content_len < 2 || r->content_len > 160) return reply(r, "413 Content Too Large", "{}");
+    char buf[161] = {0}; size_t got = 0;
+    while (got < (size_t)r->content_len) {
+        int n = httpd_req_recv(r, buf + got, r->content_len - got);
+        if (n <= 0) return reply(r, "400 Bad Request", "{}");
+        got += n;
+    }
+    const char *end = NULL;
+    cJSON *body = cJSON_ParseWithLengthOpts(buf, got + 1, &end, true);
+    if (end != buf + got || !cJSON_IsObject(body)) {
+        cJSON_Delete(body); return reply(r, "400 Bad Request", "{}");
+    }
+    bool accepted = false;
+    const bool read = !strcmp(r->uri, "/notice-read");
+    if (read) {
+        if (cJSON_GetArraySize(body) != 0) {
+            cJSON_Delete(body); return reply(r, "400 Bad Request", "{}");
+        }
+        accepted = muse_notice_request_read();
+    } else {
+        cJSON *muted = cJSON_GetObjectItemCaseSensitive(body, "muted");
+        cJSON *quiet = cJSON_GetObjectItemCaseSensitive(body, "quiet_enabled");
+        cJSON *start = cJSON_GetObjectItemCaseSensitive(body, "start_minute");
+        cJSON *finish = cJSON_GetObjectItemCaseSensitive(body, "end_minute");
+        cJSON *offset = cJSON_GetObjectItemCaseSensitive(body, "utc_offset_minute");
+        if (cJSON_GetArraySize(body) != 5 || !cJSON_IsBool(muted) || !cJSON_IsBool(quiet) ||
+            !notice_integer(start, 0, 1439) || !notice_integer(finish, 0, 1439) ||
+            !notice_integer(offset, -720, 840)) {
+            cJSON_Delete(body); return reply(r, "400 Bad Request", "{}");
+        }
+        const muse_notice_policy_t policy = {.muted = cJSON_IsTrue(muted),
+            .quiet_enabled = cJSON_IsTrue(quiet), .start_minute = start->valueint,
+            .end_minute = finish->valueint, .utc_offset_minute = offset->valueint};
+        accepted = muse_notice_set_policy(&policy) == ESP_OK;
+    }
+    cJSON_Delete(body);
+    if (!accepted) return reply(r, read ? "409 Conflict" : "503 Service Unavailable", "{}");
+    body = cJSON_CreateObject(); notice_json(body);
+    char *text = cJSON_PrintUnformatted(body); cJSON_Delete(body);
+    esp_err_t result = reply(r, text ? (read ? "202 Accepted" : "200 OK") : "503 Service Unavailable", text ? text : "{}");
+    free(text); return result;
+}
+
 static void handsfree_json(cJSON *body)
 {
     const muse_voice_handsfree_status_t status = muse_voice_handsfree_status();
@@ -131,6 +203,7 @@ static esp_err_t session(httpd_req_t *r)
     sw_config_t config; sw_config_get(&config);
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "csrf", csrf);
+    notice_json(cJSON_AddObjectToObject(body, "notices"));
     handsfree_json(cJSON_AddObjectToObject(body, "handsfree"));
     cJSON_AddStringToObject(body, "speaker", config.speaker);
     cJSON_AddBoolToObject(body, "tts_configured", sw_config_ready(&config));
@@ -343,6 +416,7 @@ static bool open_portal(void)
         esp_wifi_set_mode(WIFI_MODE_STA); return false;
     }
     httpd_config_t hc = HTTPD_DEFAULT_CONFIG();
+    hc.max_uri_handlers = 12;
     hc.max_open_sockets = 3; hc.lru_purge_enable = true;
     hc.stack_size = 8192; hc.recv_wait_timeout = 3; hc.send_wait_timeout = 3;
     if (httpd_start(&server, &hc) != ESP_OK) { esp_wifi_set_mode(WIFI_MODE_STA); return false; }
@@ -350,6 +424,8 @@ static bool open_portal(void)
         { .uri = "/", .method = HTTP_GET, .handler = page },
         { .uri = "/session", .method = HTTP_GET, .handler = session },
         { .uri = "/config", .method = HTTP_POST, .handler = save },
+        { .uri = "/notice-policy", .method = HTTP_POST, .handler = notice_control },
+        { .uri = "/notice-read", .method = HTTP_POST, .handler = notice_control },
         { .uri = "/handsfree", .method = HTTP_POST, .handler = handsfree_control },
         { .uri = "/voices", .method = HTTP_POST, .handler = voice_request },
         { .uri = "/preview", .method = HTTP_POST, .handler = voice_request },

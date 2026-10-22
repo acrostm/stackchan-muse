@@ -32,8 +32,8 @@ static size_t utf8_prefix(const char *text, size_t cap)
     return used;
 }
 
-bool muse_notice_core_publish(muse_notice_core_t *state, const char *message_id,
-                              const char *text)
+bool muse_notice_core_publish_mode(muse_notice_core_t *state, const char *message_id,
+                                   const char *text, bool unread_only)
 {
     if (!state || !text || !text[0] || state->count >= MUSE_NOTICE_QUEUE_MAX)
         return false;
@@ -45,20 +45,71 @@ bool muse_notice_core_publish(muse_notice_core_t *state, const char *message_id,
     unsigned slot = (state->head + state->count) % MUSE_NOTICE_QUEUE_MAX;
     memcpy(state->text[slot], text, length);
     state->text[slot][length] = '\0';
+    state->unread_only[slot] = unread_only;
     state->seen[state->seen_next++ % MUSE_NOTICE_SEEN_MAX] = id;
     ++state->count;
     return true;
 }
 
-bool muse_notice_core_take(muse_notice_core_t *state, char *out, size_t cap)
+bool muse_notice_core_take_mode(muse_notice_core_t *state, char *out, size_t cap,
+                                bool include_unread)
 {
     if (!state || !out || !cap || !state->count) return false;
-    size_t n = utf8_prefix(state->text[state->head], cap);
+    unsigned selected = 0;
+    while (selected < state->count && !include_unread &&
+           state->unread_only[(state->head + selected) % MUSE_NOTICE_QUEUE_MAX]) ++selected;
+    if (selected == state->count) return false;
+    unsigned slot = (state->head + selected) % MUSE_NOTICE_QUEUE_MAX;
+    size_t n = utf8_prefix(state->text[slot], cap);
     if (!n) return false;
-    memcpy(out, state->text[state->head], n);
+    memcpy(out, state->text[slot], n);
     out[n] = '\0';
-    state->text[state->head][0] = '\0';
-    state->head = (state->head + 1) % MUSE_NOTICE_QUEUE_MAX;
-    --state->count;
+    for (unsigned i = selected; i + 1 < state->count; ++i) {
+        unsigned to = (state->head + i) % MUSE_NOTICE_QUEUE_MAX;
+        unsigned from = (to + 1) % MUSE_NOTICE_QUEUE_MAX;
+        memcpy(state->text[to], state->text[from], sizeof(state->text[to]));
+        state->unread_only[to] = state->unread_only[from];
+    }
+    unsigned tail = (state->head + --state->count) % MUSE_NOTICE_QUEUE_MAX;
+    state->text[tail][0] = '\0';
+    state->unread_only[tail] = false;
+    return true;
+}
+
+bool muse_notice_core_publish(muse_notice_core_t *state, const char *id, const char *text)
+{
+    return muse_notice_core_publish_mode(state, id, text, false);
+}
+
+bool muse_notice_core_take(muse_notice_core_t *state, char *out, size_t cap)
+{
+    return muse_notice_core_take_mode(state, out, cap, false);
+}
+
+void muse_notice_core_silence(muse_notice_core_t *state)
+{
+    if (!state) return;
+    for (unsigned i = 0; i < state->count; ++i)
+        state->unread_only[(state->head + i) % MUSE_NOTICE_QUEUE_MAX] = true;
+}
+
+bool muse_notice_core_audible(const muse_notice_core_t *state)
+{
+    if (!state) return false;
+    for (unsigned i = 0; i < state->count; ++i)
+        if (!state->unread_only[(state->head + i) % MUSE_NOTICE_QUEUE_MAX]) return true;
+    return false;
+}
+
+bool muse_notice_core_return_unread(muse_notice_core_t *state, const char *text)
+{
+    if (!state || !text || !text[0] || state->count >= MUSE_NOTICE_QUEUE_MAX) return false;
+    size_t n = utf8_prefix(text, MUSE_NOTICE_TEXT_MAX + 1);
+    if (!n) return false;
+    state->head = (state->head + MUSE_NOTICE_QUEUE_MAX - 1) % MUSE_NOTICE_QUEUE_MAX;
+    memcpy(state->text[state->head], text, n);
+    state->text[state->head][n] = '\0';
+    state->unread_only[state->head] = true;
+    ++state->count;
     return true;
 }

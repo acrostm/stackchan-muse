@@ -34,7 +34,8 @@ class StackChanSequenceGuardTests(unittest.TestCase):
 #include <stdatomic.h>
 #include <stdbool.h>
 static atomic_bool s_stop_requested;
-static unsigned cancelled, ptt, tts, nudges;
+static unsigned cancelled, ptt, tts, nudges, notices;
+void muse_notice_cancel_pending(void) { ++notices; }
 void muse_ptt_cancel_current(void) { ++ptt; }
 void muse_hatch_turn_cancel(void) { ++cancelled; }
 void sw_tts_cancel(void) { ++tts; }
@@ -44,7 +45,7 @@ void muse_voice_request_stop(void)
 int main(void) {
     muse_voice_request_stop();
     assert(atomic_load(&s_stop_requested));
-    assert(ptt == 1 && tts == 1 && nudges == 1);
+    assert(ptt == 1 && tts == 1 && nudges == 1 && notices == 1);
     assert(cancelled == CONFIG_MUSE_HATCH);
     return 0;
 }

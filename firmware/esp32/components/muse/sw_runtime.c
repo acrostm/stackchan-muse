@@ -92,6 +92,10 @@ void sw_tts_status(char *out, size_t cap)
 extern bool sw_voice_probe(void);
 bool sw_console_command(const char *line)
 {
+    if (!strcmp(line, "notice.read")) {
+        printf("@notice.read %s\n", muse_notice_request_read() ? "queued" : "unavailable");
+        return true;
+    }
     if (!strcmp(line, "voice.handsfree=on") || !strcmp(line, "voice.handsfree=off")) {
         printf("@voice.handsfree %s\n", muse_voice_set_handsfree(!strcmp(line, "voice.handsfree=on"))
                ? "queued" : "unavailable");

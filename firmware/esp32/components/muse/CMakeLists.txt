@@ -49,6 +49,7 @@ if(CONFIG_MUSE_ENABLED)
         "muse_ptt_guard.c"
         "muse_notice_core.c"
         "muse_notice.c"
+        "muse_notice_policy.c"
         "muse_turn_filter.c"
         "muse_text.c"
         "muse_keypad.c"

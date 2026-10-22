@@ -35,6 +35,7 @@ bool sw_tts_start(const char *text);
 void sw_tts_cancel(void);
 size_t sw_tts_read(void *out, size_t cap);
 bool sw_tts_done(void);
+bool sw_tts_succeeded(void);
 #ifdef __cplusplus
 }
 #endif

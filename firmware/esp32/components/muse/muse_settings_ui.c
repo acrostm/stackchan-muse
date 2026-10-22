@@ -37,6 +37,7 @@
 #include "muse_text.h"
 #include "muse_ui.h"
 #include "muse_voice.h"
+#include "muse_notice.h"
 #include "muse_wifi.h"
 #include "sw_runtime.h"
 
@@ -98,6 +99,7 @@ static lv_obj_t *s_ble_sw, *s_ble_status;
 
 /* Sound page. */
 static lv_obj_t *s_hf_sw, *s_hf_status;
+static lv_obj_t *s_notice_mute, *s_notice_quiet, *s_notice_status, *s_notice_read;
 static lv_obj_t *s_spk_sw, *s_vol_val, *s_vol_sl, *s_gain_val, *s_gain_sl, *s_bright_val, *s_bright_sl, *s_mic_bar, *s_mic_val;
 
 /* Sleep page. */
@@ -1014,6 +1016,21 @@ static void on_handsfree(lv_event_t *e)
     }
 }
 
+static void on_notice_policy(lv_event_t *e)
+{
+    muse_notice_policy_t policy = muse_notice_status().policy;
+    lv_obj_t *target = lv_event_get_target(e);
+    if (target == s_notice_mute) policy.muted = lv_obj_has_state(target, LV_STATE_CHECKED);
+    else policy.quiet_enabled = lv_obj_has_state(target, LV_STATE_CHECKED);
+    if (muse_notice_set_policy(&policy) != ESP_OK) set_text(s_notice_status, "Save failed");
+}
+
+static void on_notice_read(lv_event_t *e)
+{
+    (void)e;
+    set_text(s_notice_status, muse_notice_request_read() ? "Read queued" : "Check unread / speaker");
+}
+
 static void on_volume(lv_event_t *e)
 {
     int v = lv_slider_get_value(s_vol_sl);
@@ -1059,6 +1076,12 @@ static void build_sound_page(lv_obj_t *tile)
         s_hf_status = label(list, &lv_font_montserrat_14, COLOR_DIM, hf.state);
         note(list, "Say Hi, Stack Chan. Pauses on this page. Off after restart. Screen sleep keeps wake listening on.");
     }
+    const muse_notice_status_t notices = muse_notice_status();
+    s_notice_mute = switch_row(list, "Mute notices", notices.policy.muted, on_notice_policy);
+    s_notice_quiet = switch_row(list, "Quiet hours", notices.policy.quiet_enabled, on_notice_policy);
+    s_notice_status = label(list, &lv_font_montserrat_14, COLOR_DIM, "");
+    s_notice_read = button(list, "Read next notice", COLOR_ACCENT, on_notice_read, NULL);
+    note(list, "Quiet hours keep unread notices. Change times in setup. Unread clears after restart.");
     s_vol_sl = slider(list, "Volume", 0, 100, muse_settings_volume(), &s_vol_val, on_volume);
     s_gain_sl = slider(list, "Mic gain", 0, MUSE_MIC_GAIN_MAX / 3, muse_settings_mic_gain() / 3, &s_gain_val, on_gain);
 
@@ -1087,6 +1110,16 @@ static void build_sound_page(lv_obj_t *tile)
 
 static void tick_sound(void)
 {
+    const muse_notice_status_t notices = muse_notice_status();
+    lv_obj_set_state(s_notice_mute, LV_STATE_CHECKED, notices.policy.muted);
+    lv_obj_set_state(s_notice_quiet, LV_STATE_CHECKED, notices.policy.quiet_enabled);
+    lv_obj_set_state(s_notice_read, LV_STATE_DISABLED, !notices.can_read || notices.read_requested);
+    char notice_text[80];
+    snprintf(notice_text, sizeof(notice_text), "%u unread / %s", notices.unread,
+             notices.read_requested ? "read queued" : !notices.ready ? "settings unavailable" :
+             notices.quiet_now ? "quiet" : "auto notices on");
+    set_text(s_notice_status, notice_text);
+
     if (s_hf_sw) {
         const muse_voice_handsfree_status_t hf = muse_voice_handsfree_status();
         lv_obj_set_state(s_hf_sw, LV_STATE_CHECKED, hf.requested);
