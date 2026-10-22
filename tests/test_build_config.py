@@ -51,12 +51,16 @@ class BuildConfigTests(unittest.TestCase):
             with patch.object(module, 'ROOT', root), patch.object(
                     module.subprocess, 'run',
                     return_value=SimpleNamespace(returncode=0)) as run:
-                with patch('sys.argv', ['build_firmware.py', '--with-camera']):
+                with patch('sys.argv', ['build_firmware.py', '--with-camera']), \
+                        patch.dict('sys.modules', {'yaml': None}):
                     with self.assertRaises(SystemExit) as end:
                         module.main()
             self.assertEqual(end.exception.code, 0)
             overlay = root / '.private/sdkconfig-camera.defaults'
             self.assertIn('CONFIG_MUSE_STACKCHAN_CAMERA=y', overlay.read_text())
+            generator = run.call_args_list[0].args[0]
+            self.assertTrue(generator[0].endswith('idf6.0_py3.14_env/bin/python'))
+            self.assertIn('--write-constraints', generator)
             command = run.call_args.args[0]
             self.assertTrue(any(value.endswith('sdkconfig-camera.defaults') for value in command))
 
