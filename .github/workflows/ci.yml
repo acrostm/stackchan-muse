@@ -82,6 +82,9 @@ jobs:
           EXTRA_CONFIG: ${{ matrix.extra_config }}
         run: |
           . "$IDF_PATH/export.sh" > /dev/null
+          python ../../tools/check_dependency_lock.py --write-constraints "$PWD/reviewed.constraints"
+          export IDF_COMPONENT_CONSTRAINT_FILES="$PWD/reviewed.constraints"
+          unset IDF_COMPONENT_CONSTRAINTS
           cp ../../docs/firmware-dependencies.lock.yml dependencies.lock
           defaults="sdkconfig.defaults;devices/sdkconfig.muse;devices/sdkconfig.muse-${{ matrix.profile }}"
           mkdir -p build-ci
@@ -140,6 +143,9 @@ jobs:
         working-directory: firmware/esp32
         run: |
           . "$IDF_PATH/export.sh" > /dev/null
+          python ../../tools/check_dependency_lock.py --write-constraints "$PWD/reviewed.constraints"
+          export IDF_COMPONENT_CONSTRAINT_FILES="$PWD/reviewed.constraints"
+          unset IDF_COMPONENT_CONSTRAINTS
           idf.py -B "$PWD/build-host-tests" -DSDKCONFIG="$PWD/build-host-tests/sdkconfig" reconfigure
       - name: Test with no skipped coverage
         shell: bash

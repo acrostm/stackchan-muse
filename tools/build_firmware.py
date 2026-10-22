@@ -101,7 +101,10 @@ def main():
                      and not any(line == '# ' + key + ' is not set' for key in keys)]
             generated.write_text('\n'.join(lines + local_defaults) + '\n')
             generated.chmod(0o600)
+    constraint_file = build / "reviewed.constraints"
     env = dict(os.environ)
+    env.pop("IDF_COMPONENT_CONSTRAINTS", None)
+    env["IDF_COMPONENT_CONSTRAINT_FILES"] = str(constraint_file)
     if not args.online:
         for key in ('HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'https_proxy', 'http_proxy', 'all_proxy'):
             env.pop(key, None)
@@ -109,6 +112,11 @@ def main():
                IDF_PYTHON_ENV_PATH=str(python_env))
     env['PATH'] = os.pathsep.join([str(python_env / 'bin'), str(compiler),
                                   str(ROOT / '.venv/bin'), env.get('PATH', '')])
+    result = subprocess.run([str(python_env / 'bin/python'),
+                             str(ROOT / 'tools/check_dependency_lock.py'),
+                             '--write-constraints', str(constraint_file)], env=env).returncode
+    if result != 0:
+        raise SystemExit(result)
     command = [str(python_env / 'bin/python'), str(idf / 'tools/idf.py'),
                '-C', str(project), '-B', str(build), '-DIDF_TARGET=esp32s3',
                '-DSDKCONFIG=' + str(build / 'sdkconfig'),

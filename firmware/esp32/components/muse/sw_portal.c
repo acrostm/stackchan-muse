@@ -9,6 +9,7 @@
 #include "muse_settings.h"
 #include "muse_wifi.h"
 #include "muse_state.h"
+#include "muse_voice.h"
 #include "cJSON.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -83,12 +84,54 @@ static esp_err_t page(httpd_req_t *r)
     return httpd_resp_send(r, (const char *)sw_html_start, sw_html_end - sw_html_start);
 }
 
+static void handsfree_json(cJSON *body)
+{
+    const muse_voice_handsfree_status_t status = muse_voice_handsfree_status();
+    cJSON_AddBoolToObject(body, "supported", status.supported);
+    cJSON_AddBoolToObject(body, "requested", status.requested);
+    cJSON_AddBoolToObject(body, "enabled", status.enabled);
+    cJSON_AddStringToObject(body, "state", status.state);
+}
+
+static esp_err_t handsfree_control(httpd_req_t *r)
+{
+    char token[40];
+    if (!allowed(r) || httpd_req_get_hdr_value_str(r, "X-Setup-Token", token, sizeof(token)) != ESP_OK || strcmp(token, csrf))
+        return reply(r, "403 Forbidden", "{}");
+    if (r->content_len < 2 || r->content_len > 32) return reply(r, "413 Content Too Large", "{}");
+    char buf[33] = {0};
+    size_t got = 0;
+    while (got < (size_t)r->content_len) {
+        int n = httpd_req_recv(r, buf + got, r->content_len - got);
+        if (n <= 0) return reply(r, "400 Bad Request", "{}");
+        got += n;
+    }
+    const char *end = NULL;
+    cJSON *body = cJSON_ParseWithLengthOpts(buf, got + 1, &end, true);
+    cJSON *enabled = cJSON_GetObjectItemCaseSensitive(body, "enabled");
+    if (end != buf + got || !cJSON_IsObject(body) || cJSON_GetArraySize(body) != 1 || !cJSON_IsBool(enabled)) {
+        cJSON_Delete(body);
+        return reply(r, "400 Bad Request", "{}");
+    }
+    const bool accepted = muse_voice_set_handsfree(cJSON_IsTrue(enabled));
+    cJSON_Delete(body);
+    if (!accepted) return reply(r, "503 Service Unavailable", "{}");
+    body = cJSON_CreateObject();
+    handsfree_json(body);
+    char *text = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+    const esp_err_t result = reply(r, text ? "202 Accepted" : "503 Service Unavailable", text ? text : "{}");
+    free(text);
+    return result;
+}
+
 static esp_err_t session(httpd_req_t *r)
 {
     if (!allowed(r)) return reply(r, "403 Forbidden", "{}");
     sw_config_t config; sw_config_get(&config);
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "csrf", csrf);
+    handsfree_json(cJSON_AddObjectToObject(body, "handsfree"));
     cJSON_AddStringToObject(body, "speaker", config.speaker);
     cJSON_AddBoolToObject(body, "tts_configured", sw_config_ready(&config));
     cJSON_AddBoolToObject(body, "sdk_configured", muse_link_sdk_token() != NULL);
@@ -307,6 +350,7 @@ static bool open_portal(void)
         { .uri = "/", .method = HTTP_GET, .handler = page },
         { .uri = "/session", .method = HTTP_GET, .handler = session },
         { .uri = "/config", .method = HTTP_POST, .handler = save },
+        { .uri = "/handsfree", .method = HTTP_POST, .handler = handsfree_control },
         { .uri = "/voices", .method = HTTP_POST, .handler = voice_request },
         { .uri = "/preview", .method = HTTP_POST, .handler = voice_request },
         { .uri = "/voice-result", .method = HTTP_GET, .handler = voice_request },

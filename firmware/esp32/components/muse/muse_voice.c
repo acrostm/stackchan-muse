@@ -54,7 +54,8 @@ static const char *TAG = "muse_voice";
 static atomic_bool s_stop_requested;
 #if CONFIG_MUSE_HANDSFREE
 static atomic_bool s_sr_probe_requested;
-static atomic_bool s_hf_requested;
+static atomic_bool s_hf_requested, s_hf_owner_running, s_hf_failed;
+static atomic_uint s_hf_public;
 static muse_handsfree_t s_hf;
 static bool s_hf_reply_audio_complete;
 #endif
@@ -1041,25 +1042,34 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
 
 #if CONFIG_MUSE_HANDSFREE
 static int64_t hf_now(void) { return esp_timer_get_time() / 1000; }
+static void hf_publish(void)
+{
+    atomic_store_explicit(&s_hf_public, (unsigned)s_hf.phase | (s_hf.enabled ? 256u : 0u), memory_order_release);
+}
 
 /* Only the voice owner changes model state. Callers post the desired setting. */
 static void hf_apply(void)
 {
     const bool wanted = atomic_load_explicit(&s_hf_requested, memory_order_acquire);
-    if (wanted == s_hf.enabled) return;
+    if (wanted == s_hf.enabled) { hf_publish(); return; }
     if (!wanted) {
         muse_handsfree_enable(&s_hf, false, hf_now());
         muse_sr_engine_deinit();
         pre_reset();
+        hf_publish();
         return;
     }
+    atomic_store_explicit(&s_hf_failed, false, memory_order_release);
     const esp_err_t error = muse_sr_engine_init();
     if (error != ESP_OK) {
         atomic_store_explicit(&s_hf_requested, false, memory_order_release);
+        atomic_store_explicit(&s_hf_failed, true, memory_order_release);
+        hf_publish();
         go_idle("WAKE MODEL UNAVAILABLE");
         return;
     }
     muse_handsfree_enable(&s_hf, true, hf_now());
+    hf_publish();
     muse_sr_engine_reset();
     pre_reset();
 }
@@ -1067,6 +1077,7 @@ static void hf_apply(void)
 static void hf_cancel(void)
 {
     muse_handsfree_tick(&s_hf, hf_now(), false, 0, false, true);
+    hf_publish();
     muse_sr_engine_reset();
 }
 
@@ -1105,6 +1116,7 @@ static void hf_record(uint32_t *press_turn)
         muse_state_set_level(muse_audio_level(s_chunk, MUSE_AUDIO_CHUNK));
         const muse_hf_event_t event = muse_handsfree_tick(&s_hf, hf_now(), false,
                                                         result.speech_ms, false, false);
+        hf_publish();
         if (event & MUSE_HF_DROP) break;
         if (event & MUSE_HF_END) { qualified = true; break; }
     }
@@ -1132,6 +1144,7 @@ static void hf_record(uint32_t *press_turn)
         atomic_load_explicit(&s_hf_requested, memory_order_acquire) &&
         !atomic_load_explicit(&s_stop_requested, memory_order_acquire) && !press_waiting();
     muse_handsfree_reply_done(&s_hf, generation, hf_now(), completed, completed);
+    hf_publish();
     muse_sr_engine_reset();
     pre_reset();
     /* Transfer the consumed press directly to voice_task's pending path;
@@ -1147,6 +1160,7 @@ static void hf_idle(bool fresh, uint32_t *press_turn)
                          muse_notice_pending() || !muse_hatch_ready() || press_waiting();
     if (blocked) {
         muse_handsfree_tick(&s_hf, hf_now(), false, 0, true, false);
+        hf_publish();
         muse_sr_engine_reset();
         return;
     }
@@ -1156,11 +1170,14 @@ static void hf_idle(bool fresh, uint32_t *press_turn)
     if (muse_sr_engine_feed(s_chunk, MUSE_AUDIO_CHUNK, wake,
                             s_hf.phase == MUSE_HF_FOLLOW, &result) != ESP_OK) {
         atomic_store_explicit(&s_hf_requested, false, memory_order_release);
+        atomic_store_explicit(&s_hf_failed, true, memory_order_release);
         hf_cancel();
         return;
     }
-    if (muse_handsfree_tick(&s_hf, hf_now(), result.wake, result.speech_ms,
-                            false, false) & MUSE_HF_START) hf_record(press_turn);
+    const muse_hf_event_t event = muse_handsfree_tick(&s_hf, hf_now(), result.wake,
+                                                     result.speech_ms, false, false);
+    hf_publish();
+    if (event & MUSE_HF_START) hf_record(press_turn);
 }
 #endif
 
@@ -1171,6 +1188,8 @@ static void voice_task(void *arg)
     muse_audio_selftest();
 #if CONFIG_MUSE_HANDSFREE
     muse_handsfree_init(&s_hf, false, hf_now());
+    hf_publish();
+    atomic_store_explicit(&s_hf_owner_running, true, memory_order_release);
 #endif
     for (;;) {
 #if CONFIG_MUSE_HANDSFREE
@@ -1356,6 +1375,7 @@ static void voice_task(void *arg)
             atomic_load_explicit(&s_hf_requested, memory_order_acquire) &&
             !atomic_load_explicit(&s_stop_requested, memory_order_acquire);
         muse_handsfree_reply_done(&s_hf, hf_generation, hf_now(), completed, completed);
+        hf_publish();
 #endif
         if (pending_turn) pending_barge = true;
         pre_reset();
@@ -1400,10 +1420,39 @@ void muse_voice_request_chirp(void)
     muse_state_nudge();
 }
 
+muse_voice_handsfree_status_t muse_voice_handsfree_status(void)
+{
+    muse_voice_handsfree_status_t status = {.state = "unsupported"};
+#if CONFIG_MUSE_HANDSFREE
+    status.supported = true;
+    status.requested = atomic_load_explicit(&s_hf_requested, memory_order_acquire);
+    const unsigned snapshot = atomic_load_explicit(&s_hf_public, memory_order_acquire);
+    status.enabled = (snapshot & 256u) != 0;
+    if (!atomic_load_explicit(&s_hf_owner_running, memory_order_acquire)) status.state = "unavailable";
+    else if (!status.requested) status.state = status.enabled ? "stopping" :
+        atomic_load_explicit(&s_hf_failed, memory_order_acquire) ? "error" : "off";
+    else if (!status.enabled) status.state = "starting";
+    else {
+        const muse_mode_t mode = muse_state_mode(NULL);
+        if (mode == MUSE_MODE_LISTENING) status.state = "recording";
+        else if (mode == MUSE_MODE_THINKING || mode == MUSE_MODE_SPEAKING) status.state = "busy";
+        else switch (snapshot & 255u) {
+            case MUSE_HF_FOLLOW: status.state = "follow"; break;
+            case MUSE_HF_IDLE: status.state = "wake"; break;
+            case MUSE_HF_WAIT_SPEECH: case MUSE_HF_RECORDING: status.state = "recording"; break;
+            case MUSE_HF_COOLDOWN: status.state = "cooldown"; break;
+            default: status.state = "paused"; break;
+        }
+    }
+#endif
+    return status;
+}
+
 bool muse_voice_set_handsfree(bool enabled)
 {
 #if CONFIG_MUSE_HANDSFREE
-    if (!s_queue) return false;
+    if (!atomic_load_explicit(&s_hf_owner_running, memory_order_acquire)) return false;
+    if (!enabled) atomic_store_explicit(&s_hf_failed, false, memory_order_release);
     atomic_store_explicit(&s_hf_requested, enabled, memory_order_release);
     if (!enabled) muse_voice_request_stop();
     muse_state_nudge();

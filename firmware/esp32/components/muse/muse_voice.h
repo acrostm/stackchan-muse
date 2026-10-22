@@ -61,3 +61,9 @@ bool muse_voice_notes_waiting(void);
 
 /* Explicit runtime opt-in; defaults off after each boot. Disable cancels speech. */
 bool muse_voice_set_handsfree(bool enabled);
+
+typedef struct {
+    bool supported, requested, enabled;
+    const char *state;  /* static name, no secret/account data */
+} muse_voice_handsfree_status_t;
+muse_voice_handsfree_status_t muse_voice_handsfree_status(void);

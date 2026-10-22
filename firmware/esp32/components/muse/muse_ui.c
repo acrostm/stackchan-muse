@@ -42,6 +42,7 @@
 #include "muse_settings.h"
 #include "muse_settings_ui.h"
 #include "muse_state.h"
+#include "muse_voice.h"
 #include "muse_wifi.h"
 #if CONFIG_MUSE_WATCHER_CAMERA
 #include "boards/watcher_camera.h"
@@ -110,6 +111,9 @@ static lv_obj_t *s_bar;     /* compact layout's stand-in for the ring */
 static lv_obj_t *s_state_lbl;
 static lv_obj_t *s_name_lbl;    /* this gadget's own name, to tell it from the next one */
 static lv_obj_t *s_power_lbl;
+#if CONFIG_MUSE_HANDSFREE
+static lv_obj_t *s_hf_badge;
+#endif
 static lv_obj_t *s_caption_lbl;
 static lv_obj_t *s_reply_lbl;   /* full layout: the reply's page while answering */
 static lv_obj_t *s_meter[METER_SEGS];
@@ -870,6 +874,9 @@ static void build_screen(void)
     s_wifi_icon = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
     s_ble_icon = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
     s_power_lbl = make_label(status, &lv_font_unscii_8, COLOR_DIM);
+#if CONFIG_MUSE_HANDSFREE
+    s_hf_badge = make_label(status, &lv_font_unscii_8, COLOR_DIM);
+#endif
 
     /* The compact layout leaves the state to the avatar and the caption,
      * unless the screen is tall enough to fit it in small type above Muse. */
@@ -1312,6 +1319,13 @@ static void update_power(float now)
 
 static void update_status(muse_mode_t mode, float now)
 {
+#if CONFIG_MUSE_HANDSFREE
+    const muse_voice_handsfree_status_t hf = muse_voice_handsfree_status();
+    const char *badge = !hf.requested ? (hf.enabled ? "STOPPING" : "WAKE OFF") :
+        !hf.enabled ? "WAKE..." : !strcmp(hf.state, "follow") ? "FOLLOW" :
+        !strcmp(hf.state, "wake") ? "WAKE ON" : !strcmp(hf.state, "paused") ? "PAUSED" : "VOICE";
+    if (strcmp(badge, lv_label_get_text(s_hf_badge))) lv_label_set_text(s_hf_badge, badge);
+#endif
     uint32_t accent = muse_pixel_accent(mode);
     const char *name = mode == MUSE_MODE_IDLE ? s_idle_name : MODE_NAMES[mode];
 

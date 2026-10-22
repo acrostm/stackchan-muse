@@ -97,6 +97,7 @@ static int64_t s_link_reset_armed_us;
 static lv_obj_t *s_ble_sw, *s_ble_status;
 
 /* Sound page. */
+static lv_obj_t *s_hf_sw, *s_hf_status;
 static lv_obj_t *s_spk_sw, *s_vol_val, *s_vol_sl, *s_gain_val, *s_gain_sl, *s_bright_val, *s_bright_sl, *s_mic_bar, *s_mic_val;
 
 /* Sleep page. */
@@ -1004,6 +1005,15 @@ static void on_speaker_sw(lv_event_t *e)
     muse_settings_set_speaker_on(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
 }
 
+static void on_handsfree(lv_event_t *e)
+{
+    lv_obj_t *target = lv_event_get_target(e);
+    if (!muse_voice_set_handsfree(lv_obj_has_state(target, LV_STATE_CHECKED))) {
+        lv_obj_set_state(target, LV_STATE_CHECKED, false);
+        set_text(s_hf_status, "Voice unavailable");
+    }
+}
+
 static void on_volume(lv_event_t *e)
 {
     int v = lv_slider_get_value(s_vol_sl);
@@ -1043,6 +1053,12 @@ static void build_sound_page(lv_obj_t *tile)
     lv_obj_t *list;
     s_sound = page(tile, "SOUND", true, &list);
     s_spk_sw = switch_row(list, "Speaker", muse_settings_speaker_on(), on_speaker_sw);
+    const muse_voice_handsfree_status_t hf = muse_voice_handsfree_status();
+    if (hf.supported) {
+        s_hf_sw = switch_row(list, "Hands-free", hf.requested, on_handsfree);
+        s_hf_status = label(list, &lv_font_montserrat_14, COLOR_DIM, hf.state);
+        note(list, "Say Hi, Stack Chan. Pauses on this page. Off after restart. Screen sleep keeps wake listening on.");
+    }
     s_vol_sl = slider(list, "Volume", 0, 100, muse_settings_volume(), &s_vol_val, on_volume);
     s_gain_sl = slider(list, "Mic gain", 0, MUSE_MIC_GAIN_MAX / 3, muse_settings_mic_gain() / 3, &s_gain_val, on_gain);
 
@@ -1071,6 +1087,11 @@ static void build_sound_page(lv_obj_t *tile)
 
 static void tick_sound(void)
 {
+    if (s_hf_sw) {
+        const muse_voice_handsfree_status_t hf = muse_voice_handsfree_status();
+        lv_obj_set_state(s_hf_sw, LV_STATE_CHECKED, hf.requested);
+        set_text(s_hf_status, hf.state);
+    }
     bool on = muse_settings_speaker_on();   /* also toggled from the face */
     if (on != lv_obj_has_state(s_spk_sw, LV_STATE_CHECKED)) {
         lv_obj_set_state(s_spk_sw, LV_STATE_CHECKED, on);
