@@ -64,6 +64,7 @@ int main(void) {
 
     def test_reply_completion_requires_successful_audio_and_drain(self):
         voice = (BASE / 'muse_voice.c').read_text()
+        wrapper = voice[voice.index('static esp_err_t voice_write('):voice.index('/*\n * The note being recorded')]
         code = voice[voice.index('static bool hatch_reply('):voice.index('static void go_idle(const char *caption)\n{')]
         execute(r'''
 #include <assert.h>
@@ -80,7 +81,8 @@ enum {ESP_OK=0, MUSE_MODE_THINKING, MUSE_MODE_SPEAKING};
 typedef enum {MUSE_HATCH_EV_NONE,MUSE_HATCH_EV_HEARD,MUSE_HATCH_EV_SENT,
  MUSE_HATCH_EV_REPLY,MUSE_HATCH_EV_DONE,MUSE_HATCH_EV_ERROR} muse_hatch_ev_t;
 static const char *TAG="test";
-static bool s_hf_reply_audio_complete;
+static bool s_hf_reply_audio_complete, s_output_tail;
+typedef int esp_err_t;
 static int events, reads, writes, drains, cancels;
 static bool audio, write_fail, drain_fail, speaker, stop_during_drain, press_during_drain, stop;
 static int volume;
@@ -113,18 +115,19 @@ static int muse_audio_drain(uint32_t ms) {
  assert(writes>0 && ms==300);++drains;stop=stop_during_drain;return drain_fail?-1:ESP_OK;
 }
 static void vTaskDelay(int ticks) {(void)ticks;}
+WRAPPER
 CODE
 static void setup(void) {
  events=reads=writes=drains=cancels=0;volume=50;audio=speaker=true;
  write_fail=drain_fail=stop_during_drain=press_during_drain=stop=false;
- s_hf_reply_audio_complete=true;
+ s_hf_reply_audio_complete=true;s_output_tail=false;
 }
 int main(void) {
  bool delivered,stopped;uint32_t press=0;
  setup();assert(!hatch_reply(&delivered,&press,&stopped));
- assert(delivered && !stopped && s_hf_reply_audio_complete && drains==1);
+ assert(delivered && !stopped && s_hf_reply_audio_complete && drains==1 && s_output_tail);
  setup();drain_fail=true;hatch_reply(&delivered,&press,&stopped);assert(!s_hf_reply_audio_complete);
- setup();write_fail=true;hatch_reply(&delivered,&press,&stopped);assert(!s_hf_reply_audio_complete && !drains && cancels==1);
+ setup();write_fail=true;hatch_reply(&delivered,&press,&stopped);assert(!s_hf_reply_audio_complete && !drains && cancels==1 && stopped);
  setup();audio=false;hatch_reply(&delivered,&press,&stopped);assert(!s_hf_reply_audio_complete && !drains);
  setup();speaker=false;hatch_reply(&delivered,&press,&stopped);assert(!s_hf_reply_audio_complete && !drains);
  setup();volume=0;hatch_reply(&delivered,&press,&stopped);assert(!s_hf_reply_audio_complete && !drains);
@@ -132,4 +135,4 @@ int main(void) {
  setup();press_during_drain=true;assert(hatch_reply(&delivered,&press,&stopped));assert(press==91 && !s_hf_reply_audio_complete);
  return 0;
 }
-'''.replace('CODE', code))
+'''.replace('WRAPPER', wrapper).replace('CODE', code))

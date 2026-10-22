@@ -110,6 +110,15 @@ static muse_adpcm_t s_pre_enc;
 #endif
 static int16_t s_chunk[MUSE_AUDIO_CHUNK];
 static int s_settle;
+static bool s_output_tail;
+
+/* A failed write may still have queued a prefix. Keep the RX-tail fence until
+ * idle capture or barge-in has actually consumed the old microphone frames. */
+static esp_err_t voice_write(const int16_t *pcm, size_t frames)
+{
+    s_output_tail = true;
+    return muse_audio_write(pcm, frames);
+}
 
 /*
  * The note being recorded (HOLD_NOTES), kept whole in case it can't go now.
@@ -170,6 +179,7 @@ static bool idle_capture(void)
     }
     if (s_settle > 0) {
         s_settle--;
+        if (!s_settle) s_output_tail = false;
         return false;
     }
     pre_chunk_t *c = &s_pre[s_pre_next];
@@ -331,8 +341,13 @@ static bool record(bool barge_in, size_t *held, bool *reached_limit,
     if (barge_in) {
         /* Pressed during playback: the queued tail of the reply is still sounding. */
         for (int i = 0; i < SETTLE_CHUNKS; i++) {
-            muse_audio_read(s_chunk, MUSE_AUDIO_CHUNK);
+            if (muse_audio_read(s_chunk, MUSE_AUDIO_CHUNK) != ESP_OK) {
+                strlcpy(why, "MIC READ FAILED", cap);
+                return false;
+            }
         }
+        s_output_tail = false;
+        s_settle = 0;
     } else {
         for (size_t i = 0; i < s_pre_fill; i++) {
             pre_get(i, s_chunk);
@@ -350,6 +365,8 @@ static bool record(bool barge_in, size_t *held, bool *reached_limit,
             break;
         }
         if (muse_audio_read(s_chunk, MUSE_AUDIO_CHUNK) != ESP_OK) {
+            ok = false;
+            strlcpy(why, "MIC READ FAILED", cap);
             break;
         }
         muse_state_set_level(muse_audio_level(s_chunk, MUSE_AUDIO_CHUNK));
@@ -486,9 +503,10 @@ static bool hatch_reply(bool *delivered, uint32_t *press_turn, bool *stopped)
                 ESP_LOGI(TAG, "reply audio after %.2fs", (esp_timer_get_time() - t0) / 1e6);
             }
             muse_state_set_level(muse_audio_level(buf, n));
-            if (muse_audio_write(buf, n) != ESP_OK) {
+            if (voice_write(buf, n) != ESP_OK) {
                 muse_hatch_turn_cancel();
                 muse_state_set_level(0);
+                if (stopped) *stopped = true;  /* output failure must not resend the input */
                 go_idle("SPEAKER WRITE FAILED");
                 return false;
             }
@@ -498,8 +516,9 @@ static bool hatch_reply(bool *delivered, uint32_t *press_turn, bool *stopped)
         } else if (speaking) {
             /* Between messages: keep the speaker fed so it doesn't replay stale DMA. */
             muse_state_set_level(0);
-            if (muse_audio_write(silence, MUSE_AUDIO_CHUNK) != ESP_OK) {
+            if (voice_write(silence, MUSE_AUDIO_CHUNK) != ESP_OK) {
                 muse_hatch_turn_cancel();
+                if (stopped) *stopped = true;  /* output failure must not resend the input */
                 go_idle("SPEAKER WRITE FAILED");
                 return false;
             }
@@ -860,6 +879,7 @@ static bool finish_note(uint32_t *press_turn)
             muse_hatch_turn_end();   /* before the chirp, which takes ~90 ms */
             fed = true;
         }
+        s_output_tail = true;
         muse_audio_chirp(0);
         if (s_live && !fed) {
             /* Hatch is behind (still connecting, say): the rest from the kept note. */
@@ -889,6 +909,7 @@ static bool finish_note(uint32_t *press_turn)
     }
 #endif
     muse_hatch_turn_end();   /* before the chirp, which takes ~90 ms */
+    s_output_tail = true;
     muse_audio_chirp(0);
     bool stopped = false;
     const bool interrupted = hatch_reply(&delivered, press_turn, &stopped);
@@ -956,7 +977,11 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
         go_idle(caption);
         return false;
     }
-    if (notification) muse_audio_chirp(1);
+    if (notification) {
+        s_output_tail = true;
+        muse_audio_chirp(1);
+        pre_reset();
+    }
     if (!sw_tts_start(text)) {
         ESP_LOGW(TAG, "%s TTS unavailable", notification ? "notification" : "speaker-test");
         muse_state_set_caption("%s", caption);
@@ -985,7 +1010,12 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
         }
         size_t n = sw_tts_read(pcm, sizeof(pcm)) / sizeof(pcm[0]);
         if (n) {
-            muse_audio_write(pcm, n);
+            if (voice_write(pcm, n) != ESP_OK) {
+                sw_tts_cancel();
+                pre_reset();
+                go_idle("SPEAKER WRITE FAILED");
+                return false;
+            }
             played += n;
             heard = true;
         }
@@ -1220,6 +1250,7 @@ static void voice_task(void *arg)
             }
             if (s_chirp) {
                 s_chirp = false;
+                s_output_tail = true;
                 muse_audio_chirp(1);
                 pre_reset();
             }
@@ -1228,13 +1259,14 @@ static void voice_task(void *arg)
                 int16_t *pcm = NULL;
                 size_t n = muse_hatch_mp3_selftest(&pcm);
                 for (size_t i = 0; i < n; i += MUSE_AUDIO_CHUNK) {
-                    muse_audio_write(pcm + i, n - i < MUSE_AUDIO_CHUNK ? n - i : MUSE_AUDIO_CHUNK);
+                    voice_write(pcm + i, n - i < MUSE_AUDIO_CHUNK ? n - i : MUSE_AUDIO_CHUNK);
                 }
                 free(pcm);
                 pre_reset();
             }
             if (s_loopback) {
                 s_loopback = false;
+                s_output_tail = true;
                 muse_audio_loopback_test(muse_settings_volume());
                 pre_reset();
             }
@@ -1294,7 +1326,7 @@ static void voice_task(void *arg)
         size_t held;
         bool reached_limit;
         char why[96];
-        bool ok = record(barge_in, &held, &reached_limit, &pending_turn,
+        bool ok = record(barge_in || s_output_tail, &held, &reached_limit, &pending_turn,
                          why, sizeof(why));
         enum muse_ptt_result gate = muse_ptt_result(turn);
         muse_ptt_retire(turn);
@@ -1307,6 +1339,8 @@ static void voice_task(void *arg)
             continue;
         }
         if (!ok) {
+            muse_hatch_turn_cancel();
+            drop_rec();
             pre_reset();
             go_idle(why);   /* Hatch failed it while recording */
             continue;
