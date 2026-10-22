@@ -26,9 +26,13 @@ int main(void) {
     assert(muse_notice_core_take(&q, text, sizeof(text)) && !strcmp(text, "第二条"));
     assert(muse_notice_core_publish(&q, "five", "队列有空间"));
     char tiny[5];
-    assert(muse_notice_core_take(&q, tiny, sizeof(tiny)));
+    unsigned count = q.count;
+    assert(!muse_notice_core_take(&q, tiny, sizeof(tiny)) && q.count == count);
+    assert(muse_notice_core_take(&q, text, sizeof(text)) && !strcmp(text, "第三条"));
+    strcpy(tiny, "ok");
     for (const unsigned char *p = (const unsigned char *)tiny; *p; ++p)
         assert((*p & 0xc0) != 0x80 || p > (const unsigned char *)tiny);
+    muse_notice_core_clear(&q);
     return 0;
 }
 '''

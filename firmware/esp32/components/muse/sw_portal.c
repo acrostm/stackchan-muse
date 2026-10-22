@@ -95,6 +95,9 @@ static void notice_json(cJSON *body)
     cJSON_AddBoolToObject(body, "read_requested", status.read_requested);
     cJSON_AddBoolToObject(body, "reading", status.reading);
     cJSON_AddNumberToObject(body, "unread", status.unread);
+    cJSON_AddNumberToObject(body, "rejected", status.rejected);
+    cJSON_AddStringToObject(body, "rejection", status.rejection);
+    cJSON_AddNumberToObject(body, "max_text_bytes", status.max_text_bytes);
     cJSON_AddBoolToObject(body, "muted", status.policy.muted);
     cJSON_AddBoolToObject(body, "quiet_enabled", status.policy.quiet_enabled);
     cJSON_AddNumberToObject(body, "start_minute", status.policy.start_minute);

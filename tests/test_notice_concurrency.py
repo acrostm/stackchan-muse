@@ -19,6 +19,7 @@ class NoticeConcurrencyTests(unittest.TestCase):
 #include <string.h>
 #include <sched.h>
 #include "nvs.h"
+void muse_state_set_reply_pending(bool value) {(void)value;}
 void muse_state_nudge(void) {}
 bool muse_settings_speaker_on(void) { return true; }
 int muse_settings_volume(void) { return 70; }
@@ -57,7 +58,10 @@ static void *publish(void *arg) {
     return NULL;
 }
 static bool consume(char *out, size_t cap) {
-    if (!muse_notice_take_next(out, cap, NULL)) return false;
+    const char *text = muse_notice_claim(NULL);
+    if (!text) return false;
+    assert(strlen(text) < cap);
+    strcpy(out, text);
     muse_notice_finish(true);  /* test owner explicitly acknowledges consumption */
     return true;
 }

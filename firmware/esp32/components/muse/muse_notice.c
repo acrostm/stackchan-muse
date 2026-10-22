@@ -5,6 +5,11 @@
 #include <stdatomic.h>
 #include <time.h>
 #include <string.h>
+#include <stdlib.h>
+#ifdef ESP_PLATFORM
+#include "esp_heap_caps.h"
+#include "sdkconfig.h"
+#endif
 #include "nvs.h"
 #include "muse_settings.h"
 #include "muse_state.h"
@@ -12,12 +17,31 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+#if defined(ESP_PLATFORM) && !CONFIG_SPIRAM
+#define PLATFORM_TEXT_MAX 700
+#else
+#define PLATFORM_TEXT_MAX MUSE_NOTICE_TEXT_MAX
+#endif
 static _Atomic(SemaphoreHandle_t) s_lock;
-static muse_notice_core_t s_state;
+static void *notice_allocate(size_t n)
+{
+#ifdef ESP_PLATFORM
+#if CONFIG_SPIRAM
+    return heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+    return n <= 701 ? malloc(n) : NULL;
+#endif
+#else
+    return malloc(n);
+#endif
+}
+static muse_notice_core_t s_state = {.allocate = notice_allocate};
 static muse_notice_policy_t s_policy;
 static bool s_policy_loaded, s_read_requested, s_reading;
-static char s_active_text[MUSE_NOTICE_TEXT_MAX + 1];
+static char *s_active_text;
 static atomic_bool s_silence_requested;
+static uint32_t s_rejected;
+static muse_notice_result_t s_rejection;
 
 
 /* Allocate outside a critical section. Only the published winner protects the
@@ -76,37 +100,40 @@ bool muse_notice_publish(const char *message_id, const char *text)
     SemaphoreHandle_t lock = ensure_lock();
     if (!lock || xSemaphoreTake(lock, portMAX_DELAY) != pdTRUE) return false;
     bool quiet = refresh_policy();
-    bool ok = s_state.count + (s_reading ? 1U : 0U) < MUSE_NOTICE_QUEUE_MAX &&
-              muse_notice_core_publish_mode(&s_state, message_id, text, quiet);
+    s_state.reserved = s_reading ? 1 : 0;
+    size_t length = 0;
+    if (text) while (length <= PLATFORM_TEXT_MAX && text[length]) ++length;
+    bool ok = false;
+    if (length > PLATFORM_TEXT_MAX) s_state.last_result = MUSE_NOTICE_TOO_LONG;
+    else ok = muse_notice_core_publish_mode(&s_state, message_id, text, quiet);
+    bool rejected = !ok && s_state.last_result != MUSE_NOTICE_DUPLICATE;
+    if (rejected) {
+        if (s_rejected < UINT32_MAX) ++s_rejected;
+        s_rejection = s_state.last_result;
+    }
     xSemaphoreGive(lock);
-    if (ok && !quiet) muse_state_nudge();
+    if (rejected) muse_state_set_reply_pending(true);
+    if ((ok && !quiet) || rejected) muse_state_nudge();
     return ok;
 }
 
-bool muse_notice_take_next(char *out, size_t cap, bool *explicit_read)
+const char *muse_notice_claim(bool *explicit_read)
 {
     if (explicit_read) *explicit_read = false;
     SemaphoreHandle_t lock = ensure_lock();
-    if (!lock || xSemaphoreTake(lock, portMAX_DELAY) != pdTRUE) return false;
+    if (!lock || xSemaphoreTake(lock, portMAX_DELAY) != pdTRUE) return NULL;
     refresh_policy();
-    if (s_reading || cap < sizeof(s_active_text)) {
-        xSemaphoreGive(lock);
-        return false;
-    }
-    if (!muse_settings_speaker_on() || muse_settings_volume() <= 0) {
-        xSemaphoreGive(lock);
-        return false;
+    if (s_reading || !muse_settings_speaker_on() || muse_settings_volume() <= 0) {
+        xSemaphoreGive(lock); return NULL;
     }
     bool manual = s_read_requested;
-    bool ok = muse_notice_core_take_mode(&s_state, out, cap, manual);
-    if (ok) {
-        s_reading = true;
-        memcpy(s_active_text, out, strlen(out) + 1);
-        s_read_requested = false;
+    s_active_text = muse_notice_core_claim(&s_state, manual);
+    if (s_active_text) {
+        s_reading = true; s_read_requested = false;
         if (explicit_read) *explicit_read = manual;
     }
-    xSemaphoreGive(lock);
-    return ok;
+    const char *text = s_active_text;
+    xSemaphoreGive(lock); return text;
 }
 
 bool muse_notice_pending(void)
@@ -130,6 +157,12 @@ muse_notice_status_t muse_notice_status(void)
     status.policy = s_policy_loaded ? s_policy : muse_notice_policy_default();
     status.unread = s_state.count + (s_reading ? 1U : 0U);
     status.reading = s_reading;
+    status.rejected = s_rejected;
+    status.max_text_bytes = PLATFORM_TEXT_MAX;
+    status.rejection = s_rejection == MUSE_NOTICE_TOO_LONG ? "too_long" :
+        s_rejection == MUSE_NOTICE_FULL ? "queue_full" :
+        s_rejection == MUSE_NOTICE_NO_MEMORY ? "no_memory" :
+        s_rejection == MUSE_NOTICE_INVALID_TEXT ? "invalid_text" : "none";
     status.read_requested = s_read_requested;
     status.can_read = !s_reading && s_state.count && muse_settings_speaker_on() && muse_settings_volume() > 0;
     xSemaphoreGive(lock);
@@ -189,9 +222,10 @@ void muse_notice_finish(bool played)
     SemaphoreHandle_t lock = ensure_lock();
     if (!lock || xSemaphoreTake(lock, portMAX_DELAY) != pdTRUE) return;
     refresh_policy();
-    if (s_reading && (played || muse_notice_core_return_unread(&s_state, s_active_text))) {
+    if (s_reading && (played || muse_notice_core_return_owned(&s_state, s_active_text))) {
         s_reading = false;
-        memset(s_active_text, 0, sizeof(s_active_text));
+        if (played) muse_notice_core_release(&s_state, s_active_text);
+        s_active_text = NULL;
     }
     xSemaphoreGive(lock);
 }

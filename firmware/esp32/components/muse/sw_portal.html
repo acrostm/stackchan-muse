@@ -29,7 +29,7 @@
 <label for="notice-start">开始时间</label><input id="notice-start" type="time" value="22:00">
 <label for="notice-end">结束时间</label><input id="notice-end" type="time" value="08:00">
 <label for="notice-offset">固定时区：与 UTC 相差的分钟数</label><input id="notice-offset" type="number" min="-720" max="840" step="15" value="480">
-<small>中国标准时间为 480。不自动切换夏令时；开始与结束相同表示全天勿扰。启用时钟未同步前先静音。静音或关闭扬声器期间的消息保留未读，结束后不会集中补播。未读仅保存在本次开机内存，最多四条。</small>
+<small>中国标准时间为 480。不自动切换夏令时；开始与结束相同表示全天勿扰。启用时钟未同步前先静音。静音或关闭扬声器期间的消息保留未读，结束后不会集中补播。未读仅保存在本次开机内存，最多四条。单条文字最多 <span id="notice-limit">16,384</span> 字节；超限会显示未接收，不截断播报。</small>
 <button id="notice-save" type="button" class="secondary">保存通知设置</button>
 <button id="notice-read" type="button" class="secondary" disabled>朗读下一条未读</button>
 <p>手动朗读可在勿扰时使用，仍需打开扬声器和音量。当前对话结束后读取一条；不自动开启续听。</p>
@@ -103,8 +103,10 @@ let noticePending=false;
 function noticeTime(minute){return String(Math.floor(minute/60)).padStart(2,'0')+':'+String(minute%60).padStart(2,'0');}
 function renderNotices(status,initial=false){
  if(!status){$('#notice-status').textContent='当前固件未提供通知状态';$('#notice-save').disabled=$('#notice-read').disabled=true;return;}
+ $('#notice-limit').textContent=status.max_text_bytes>0?String(status.max_text_bytes):'未确认';
  if(initial){$('#notice-muted').checked=status.muted;$('#notice-quiet').checked=status.quiet_enabled;$('#notice-start').value=noticeTime(status.start_minute);$('#notice-end').value=noticeTime(status.end_minute);$('#notice-offset').value=String(status.utc_offset_minute);}
  $('#notice-status').textContent=`未读 ${status.unread} 条。`+(status.reading?'正在处理通知。':status.read_requested?'已排队朗读一条。':status.quiet_now?'自动通知已静音。':'自动通知可播报。')+(!status.ready?'设置不可用，请重新保存。':!status.clock_ready&&status.quiet_enabled?'等待设备时间同步。':'');
+ if(status.rejected>0){const reasons={too_long:'正文超出接收上限',queue_full:'收件箱已满',no_memory:'可用内存不足',invalid_text:'文字格式无效'};$('#notice-status').textContent+=` ${status.rejected} 条通知未接收：${reasons[status.rejection]||'接收失败'}。`;}
  $('#notice-read').disabled=noticePending||!status.can_read||status.read_requested;
  $('#notice-save').disabled=noticePending;
 }

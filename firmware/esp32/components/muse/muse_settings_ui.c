@@ -17,6 +17,7 @@
 #include "muse_settings_ui.h"
 
 #include <stdio.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -1118,6 +1119,8 @@ static void tick_sound(void)
     snprintf(notice_text, sizeof(notice_text), "%u unread / %s", notices.unread,
              notices.read_requested ? "read queued" : !notices.ready ? "settings unavailable" :
              notices.quiet_now ? "quiet" : "auto notices on");
+    if (notices.rejected) snprintf(notice_text, sizeof(notice_text), "%u unread / %" PRIu32 " not received: %s",
+                                   notices.unread, notices.rejected, notices.rejection);
     set_text(s_notice_status, notice_text);
 
     if (s_hf_sw) {
