@@ -2,7 +2,6 @@
 """Reject resolved packages absent from or different to the reviewed lock snapshot."""
 import argparse
 from pathlib import Path
-import yaml
 
 
 def validate(expected, actual, target='esp32s3'):
@@ -23,6 +22,7 @@ def constraints(expected):
 
 
 if __name__ == '__main__':
+    import yaml  # CLI runs with ESP-IDF's configured Python environment.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('actual', type=Path, nargs='?')
     parser.add_argument('--write-constraints', type=Path)
