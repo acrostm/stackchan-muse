@@ -1013,7 +1013,7 @@ static void hf_cancel(void)
 
 /* A qualified automatic note never enters the saved-note retry queue. PTT,
  * disable and face stop take priority before upload and throughout the reply. */
-static void hf_record(void)
+static void hf_record(uint32_t *press_turn)
 {
     const uint32_t generation = s_hf.generation;
     if (!muse_hatch_ready() || s_held_count || !can_record()) {
@@ -1073,15 +1073,13 @@ static void hf_record(void)
                              fed == FED && delivered && !stopped && !interrupted, false);
     muse_sr_engine_reset();
     pre_reset();
-    if (press) {
-        /* hatch_reply consumed the press: return it to the normal PTT owner. */
-        muse_input_event_t ev = {.type = MUSE_PTT_DOWN, .turn = press};
-        if (xQueueSendToFront(s_queue, &ev, 0) != pdTRUE) muse_ptt_retire(press);
-    }
+    /* Transfer the consumed press directly to voice_task's pending path;
+     * that path preserves barge-in and drains speaker/microphone tail. */
+    if (press_turn) *press_turn = press;
     go_idle("");
 }
 
-static void hf_idle(bool fresh)
+static void hf_idle(bool fresh, uint32_t *press_turn)
 {
     if (!s_hf.enabled) return;
     const bool blocked = s_monitor || s_held_count ||
@@ -1101,7 +1099,7 @@ static void hf_idle(bool fresh)
         return;
     }
     if (muse_handsfree_tick(&s_hf, hf_now(), result.wake, result.speech_ms,
-                            false, false) & MUSE_HF_START) hf_record();
+                            false, false) & MUSE_HF_START) hf_record(press_turn);
 }
 #endif
 
@@ -1227,7 +1225,11 @@ static void voice_task(void *arg)
             /* The 20 ms read paces this loop. */
             const bool fresh = idle_capture();
 #if CONFIG_MUSE_HANDSFREE
-            hf_idle(fresh);
+            hf_idle(fresh, &pending_turn);
+            if (pending_turn) {
+                pending_barge = true;
+                continue;
+            }
 #else
             (void)fresh;
 #endif
