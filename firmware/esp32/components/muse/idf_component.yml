@@ -62,4 +62,4 @@ dependencies:
   espressif/esp-sr:
     version: "2.6.0"
     rules:
-      - if: "$CONFIG{MUSE_HANDSFREE} == True"
+      - if: "$CONFIG{MUSE_SPEECH_PROFILE} == \"esp_sr\""

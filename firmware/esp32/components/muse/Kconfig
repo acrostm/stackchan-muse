@@ -127,6 +127,13 @@ menu "Muse"
             Requires the handsfree model partition and explicit runtime enable.
             This is half-duplex; wake detection is suppressed during playback.
 
+    # Component-manager conditions need an always-exported value on every
+    # target; a bool with impossible dependencies is absent from sdkconfig.
+    config MUSE_SPEECH_PROFILE
+        string
+        default "esp_sr" if MUSE_HANDSFREE
+        default "none"
+
     config SR_WN_WN9_HISTACKCHAN_TTS3
         bool
         default y if MUSE_HANDSFREE

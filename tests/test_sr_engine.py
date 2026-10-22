@@ -119,7 +119,8 @@ int main(void) {
  int before = detects, before_vad = vads, before_clean = cleans;
  assert(muse_sr_engine_feed(pcm, 320, false, false, &r) == ESP_OK);
  assert(!r.wake && !r.speech_ms && detects == before && vads == before_vad && cleans > before_clean);
- for (int i = 0; i < 960; ++i) pcm[i] = 2; expected = 2;
+ for (int i = 0; i < 960; ++i) { pcm[i] = 2; }
+ expected = 2;
  assert(muse_sr_engine_feed(pcm, 320, true, true, &r) == ESP_OK);
  assert(!r.wake && !r.speech_ms);
  assert(muse_sr_engine_feed(pcm, 192, true, true, &r) == ESP_OK);
