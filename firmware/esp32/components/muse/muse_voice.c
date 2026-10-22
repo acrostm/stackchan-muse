@@ -56,6 +56,7 @@ static atomic_bool s_stop_requested;
 static atomic_bool s_sr_probe_requested;
 static atomic_bool s_hf_requested;
 static muse_handsfree_t s_hf;
+static bool s_hf_reply_audio_complete;
 #endif
 
 #define MAX_SECS 15
@@ -417,6 +418,9 @@ static void go_idle(const char *caption);
  */
 static bool hatch_reply(bool *delivered, uint32_t *press_turn, bool *stopped)
 {
+#if CONFIG_MUSE_HANDSFREE
+    s_hf_reply_audio_complete = false;
+#endif
     muse_state_set_mode(MUSE_MODE_THINKING);
     muse_state_set_caption("SENDING VOICE NOTE");   /* until there's a transcript or reply */
     static int16_t buf[MUSE_AUDIO_CHUNK];
@@ -482,20 +486,45 @@ static bool hatch_reply(bool *delivered, uint32_t *press_turn, bool *stopped)
                 ESP_LOGI(TAG, "reply audio after %.2fs", (esp_timer_get_time() - t0) / 1e6);
             }
             muse_state_set_level(muse_audio_level(buf, n));
-            muse_audio_write(buf, n);
+            if (muse_audio_write(buf, n) != ESP_OK) {
+                muse_hatch_turn_cancel();
+                muse_state_set_level(0);
+                go_idle("SPEAKER WRITE FAILED");
+                return false;
+            }
             played += n;
         } else if (done) {
             break;
         } else if (speaking) {
             /* Between messages: keep the speaker fed so it doesn't replay stale DMA. */
             muse_state_set_level(0);
-            muse_audio_write(silence, MUSE_AUDIO_CHUNK);
+            if (muse_audio_write(silence, MUSE_AUDIO_CHUNK) != ESP_OK) {
+                muse_hatch_turn_cancel();
+                go_idle("SPEAKER WRITE FAILED");
+                return false;
+            }
         }
         /* The page being said, or before the speech the reply's opening page. */
         if ((speaking || replied) && muse_hatch_turn_caption(played, page, sizeof(page))) {
             muse_state_set_caption("%s", page);
         }
     }
+#if CONFIG_MUSE_HANDSFREE
+    if (played && muse_settings_speaker_on() && muse_settings_volume() > 0 &&
+        muse_audio_drain(300) == ESP_OK) s_hf_reply_audio_complete = true;
+    if (take_stop_request()) {
+        s_hf_reply_audio_complete = false;
+        muse_hatch_turn_cancel();
+        if (stopped) *stopped = true;
+        go_idle("");
+        return false;
+    }
+    if (take_down(press_turn, NULL)) {
+        s_hf_reply_audio_complete = false;
+        muse_hatch_turn_cancel();
+        return true;
+    }
+#endif
     muse_state_set_level(0);
     ESP_LOGI(TAG, "muse reply: %.2fs of audio, %.2fs total", (double)played / MUSE_AUDIO_RATE,
              (esp_timer_get_time() - t0) / 1e6);
@@ -1064,13 +1093,15 @@ static void hf_record(uint32_t *press_turn)
     const feed_t fed = feed_rest(s_rec, s_rec_n, &s_sent, true);
     bool delivered = false, stopped = false, interrupted = false;
     uint32_t press = 0;
+    s_hf_reply_audio_complete = false;
     if (fed == FED) interrupted = hatch_reply(&delivered, &press, &stopped);
     if (fed != FED || stopped || interrupted) muse_hatch_turn_cancel();
     drop_rec();
-    /* No follow-up window until actual speaker drain is observable. Merely
-     * accepting PCM/HTTP success must never reopen the microphone. */
-    muse_handsfree_reply_done(&s_hf, generation, hf_now(),
-                             fed == FED && delivered && !stopped && !interrupted, false);
+    const bool completed = fed == FED && delivered && !stopped && !interrupted &&
+        s_hf_reply_audio_complete && muse_settings_speaker_on() && muse_settings_volume() > 0 &&
+        atomic_load_explicit(&s_hf_requested, memory_order_acquire) &&
+        !atomic_load_explicit(&s_stop_requested, memory_order_acquire) && !press_waiting();
+    muse_handsfree_reply_done(&s_hf, generation, hf_now(), completed, completed);
     muse_sr_engine_reset();
     pre_reset();
     /* Transfer the consumed press directly to voice_task's pending path;
@@ -1280,7 +1311,18 @@ static void voice_task(void *arg)
             go_idle(why);   /* Hatch failed it while recording */
             continue;
         }
+#if CONFIG_MUSE_HANDSFREE
+        const uint32_t hf_generation = muse_handsfree_manual_started(&s_hf, hf_now());
+        s_hf_reply_audio_complete = false;
+#endif
         finish_note(&pending_turn);
+#if CONFIG_MUSE_HANDSFREE
+        const bool completed = s_hf_reply_audio_complete && !pending_turn &&
+            muse_settings_speaker_on() && muse_settings_volume() > 0 && !press_waiting() &&
+            atomic_load_explicit(&s_hf_requested, memory_order_acquire) &&
+            !atomic_load_explicit(&s_stop_requested, memory_order_acquire);
+        muse_handsfree_reply_done(&s_hf, hf_generation, hf_now(), completed, completed);
+#endif
         if (pending_turn) pending_barge = true;
         pre_reset();
         if (!pending_turn && muse_state_mode(NULL) != MUSE_MODE_IDLE) {

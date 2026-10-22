@@ -32,7 +32,8 @@ class AutomaticRecordTests(unittest.TestCase):
 #define MUSE_PTT_DOWN 1
 #define pdTRUE 1
 #define ESP_OK 0
-static atomic_bool s_hf_requested;
+static atomic_bool s_hf_requested, s_stop_requested;
+static bool s_hf_reply_audio_complete, drain_success;
 static muse_handsfree_t s_hf;
 static int s_held_count;
 static int16_t *s_rec;
@@ -50,6 +51,8 @@ typedef struct {bool wake; uint32_t speech_ms;} muse_sr_result_t;
 typedef struct {int type; uint32_t turn;} muse_input_event_t;
 static int64_t hf_now(void) {return now;}
 static bool muse_hatch_ready(void) {return ready;}
+static bool muse_settings_speaker_on(void) {return true;}
+static int muse_settings_volume(void) {return 50;}
 static bool can_record(void) {if(allocate)s_rec=calloc(MAX_FRAMES,sizeof(int16_t)); return s_rec!=NULL;}
 static void muse_state_set_asleep(bool v) {asleep=v;}
 static void muse_state_set_reply_pending(bool v) {(void)v;}
@@ -80,6 +83,7 @@ static feed_t feed_rest(const int16_t *p,size_t n,size_t *sent,bool yield) {
  assert(p==s_rec && n>0 && yield); *sent=n; return feed_result;
 }
 static bool hatch_reply(bool *delivered,uint32_t *press,bool *stopped) {
+ s_hf_reply_audio_complete=drain_success;
  ++replies;*delivered=true;*stopped=stop_reply;*press=interrupt_reply?77:0;return interrupt_reply;
 }
 static void muse_hatch_turn_cancel(void) {++cancels;}
@@ -89,13 +93,15 @@ static void setup(void) {
  assert(!s_rec); reads=uploads=replies=cancels=freed=0;returned_press=0;
  fail_read=press_at=disable_at=stop_at=s_held_count=0;
  ready=allocate=asleep=true; interrupt_reply=stop_reply=false; feed_result=FED;speech_reads=40;
- atomic_store(&s_hf_requested,true);
+ atomic_store(&s_hf_requested,true);atomic_store(&s_stop_requested,false);
+ drain_success=false;s_hf_reply_audio_complete=false;
  muse_handsfree_init(&s_hf,true,0);
  muse_handsfree_tick(&s_hf,600,false,0,false,false);
  assert(muse_handsfree_tick(&s_hf,620,true,0,false,false)==MUSE_HF_START);now=620;
 }
 int main(void) {
  setup();run_record();assert(uploads==1 && replies==1 && freed==1 && !s_rec && !s_hf.follow_pending && !asleep);
+ setup();drain_success=true;run_record();assert(uploads==1 && s_hf.follow_pending);
  setup();speech_reads=6;run_record();assert(!uploads && freed==1 && !s_rec);
  setup();speech_reads=0;run_record();assert(!uploads && freed==1 && reads>=250);
  setup();press_at=8;run_record();assert(!uploads && freed==1 && press_waiting());

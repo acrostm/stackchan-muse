@@ -288,6 +288,12 @@ esp_err_t muse_audio_write(const int16_t *mono, size_t frames)
     return ESP_OK;
 }
 
+esp_err_t muse_audio_drain(uint32_t timeout_ms)
+{
+    if (!s_open || !muse_board->audio_drain) return ESP_ERR_NOT_SUPPORTED;
+    return muse_board->audio_drain(timeout_ms);
+}
+
 float muse_audio_dbfs(const int16_t *mono, size_t frames)
 {
     if (!frames) {

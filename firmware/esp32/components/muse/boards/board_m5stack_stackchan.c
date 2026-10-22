@@ -37,6 +37,8 @@
 #include "driver/i2s_std.h"
 #include "driver/spi_master.h"
 #include "esp_check.h"
+#include "esp_attr.h"
+#include "esp_timer.h"
 #include "esp_codec_dev_defaults.h"
 #include "esp_lcd_ili9341.h"
 #include "esp_lcd_panel_io.h"
@@ -577,6 +579,46 @@ static void display_pause(bool pause)
     }
 }
 
+/* One voice owner writes PCM. After its last write, a full DMA ring plus
+ * one additional TX EOF proves all preceding descriptors were transmitted.
+ * auto_clear leaves silence behind. This observes DMA, not a wall-clock guess. */
+#define AUDIO_DMA_DESCRIPTORS 6
+#define AUDIO_DMA_FRAMES 240
+static portMUX_TYPE s_audio_tx_lock = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_audio_tx_sequence;
+static bool s_audio_tx_ready;
+
+static bool IRAM_ATTR audio_sent(i2s_chan_handle_t channel, i2s_event_data_t *event, void *context)
+{
+    (void)channel; (void)event; (void)context;
+    portENTER_CRITICAL_ISR(&s_audio_tx_lock);
+    ++s_audio_tx_sequence;
+    portEXIT_CRITICAL_ISR(&s_audio_tx_lock);
+    return false;
+}
+
+static uint32_t audio_tx_sequence(void)
+{
+    portENTER_CRITICAL(&s_audio_tx_lock);
+    const uint32_t sequence = s_audio_tx_sequence;
+    portEXIT_CRITICAL(&s_audio_tx_lock);
+    return sequence;
+}
+
+static esp_err_t audio_drain(uint32_t timeout_ms)
+{
+    if (!s_audio_tx_ready) return ESP_ERR_INVALID_STATE;
+    const uint32_t start = audio_tx_sequence();
+    const int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+    do {
+        if ((uint32_t)(audio_tx_sequence() - start) >= AUDIO_DMA_DESCRIPTORS + 1)
+            return ESP_OK;
+        if (esp_timer_get_time() >= deadline) break;
+        vTaskDelay(1);
+    } while (true);
+    return ESP_ERR_TIMEOUT;
+}
+
 /* The AW88298 drives the speaker, the ES7210 the two mics, both over one
  * duplex I2S bus at Muse's 16 kHz. */
 static esp_err_t audio_init(esp_codec_dev_handle_t *spk, esp_codec_dev_handle_t *mic)
@@ -584,6 +626,8 @@ static esp_err_t audio_init(esp_codec_dev_handle_t *spk, esp_codec_dev_handle_t 
     i2s_chan_handle_t tx, rx;
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     chan_cfg.auto_clear = true;
+    chan_cfg.dma_desc_num = AUDIO_DMA_DESCRIPTORS;
+    chan_cfg.dma_frame_num = AUDIO_DMA_FRAMES;
     ESP_RETURN_ON_ERROR(i2s_new_channel(&chan_cfg, &tx, &rx), TAG, "i2s channel");
     const i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(MUSE_AUDIO_RATE),
@@ -599,7 +643,10 @@ static esp_err_t audio_init(esp_codec_dev_handle_t *spk, esp_codec_dev_handle_t 
     };
     ESP_RETURN_ON_ERROR(i2s_channel_init_std_mode(tx, &std_cfg), TAG, "i2s tx");
     ESP_RETURN_ON_ERROR(i2s_channel_init_std_mode(rx, &std_cfg), TAG, "i2s rx");
+    const i2s_event_callbacks_t callbacks = {.on_sent = audio_sent};
+    ESP_RETURN_ON_ERROR(i2s_channel_register_event_callback(tx, &callbacks, NULL), TAG, "i2s tx callback");
     ESP_RETURN_ON_ERROR(i2s_channel_enable(tx), TAG, "i2s tx on");
+    s_audio_tx_ready = true;
     ESP_RETURN_ON_ERROR(i2s_channel_enable(rx), TAG, "i2s rx on");
 
     audio_codec_i2s_cfg_t i2s_cfg = { .port = I2S_NUM_0, .rx_handle = rx, .tx_handle = tx };
@@ -716,6 +763,7 @@ static const muse_board_t s_board = {
     .panel_sleep = panel_sleep,
     .display_pause = display_pause,
     .audio_init = audio_init,
+    .audio_drain = audio_drain,
     .mic_slot = -1,              /* two mics on the ES7210; muse_audio mixes them */
     .set_mic_gain = set_mic_gain,
     .poll_buttons = poll_buttons,
