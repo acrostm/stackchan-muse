@@ -18,6 +18,15 @@ class NoticeConcurrencyTests(unittest.TestCase):
 #include <stdlib.h>
 #include <string.h>
 #include <sched.h>
+#include "nvs.h"
+void muse_state_nudge(void) {}
+bool muse_settings_speaker_on(void) { return true; }
+int muse_settings_volume(void) { return 70; }
+esp_err_t nvs_open(const char *ns, int mode, nvs_handle_t *h) { (void)ns;(void)mode;*h=1;return ESP_OK; }
+esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *p,size_t *n) { (void)h;(void)key;(void)p;(void)n;return ESP_ERR_NVS_NOT_FOUND; }
+esp_err_t nvs_set_blob(nvs_handle_t h,const char *key,const void *p,size_t n) { (void)h;(void)key;(void)p;(void)n;return ESP_OK; }
+esp_err_t nvs_commit(nvs_handle_t h) { (void)h;return ESP_OK; }
+void nvs_close(nvs_handle_t h) { (void)h; }
 
 static atomic_int created, deleted, arrivals;
 static atomic_bool fail_allocation = true;
@@ -47,10 +56,15 @@ static void *publish(void *arg) {
     assert(muse_notice_publish((const char *)arg, (const char *)arg));
     return NULL;
 }
+static bool consume(char *out, size_t cap) {
+    if (!muse_notice_take_next(out, cap, NULL)) return false;
+    muse_notice_finish(true);  /* test owner explicitly acknowledges consumption */
+    return true;
+}
 int main(void) {
-    char out[64];
+    char out[MUSE_NOTICE_TEXT_MAX+1];
     assert(!muse_notice_publish("fail", "fail"));
-    assert(!muse_notice_take(out, sizeof(out)));
+    assert(!consume(out, sizeof(out)));
     assert(!muse_notice_pending());
     atomic_store(&fail_allocation, false);
     pthread_t threads[MUSE_NOTICE_QUEUE_MAX];
@@ -65,7 +79,7 @@ int main(void) {
     assert(!muse_notice_publish("overflow", "full"));
     unsigned seen = 0;
     for (int n = 0; n < MUSE_NOTICE_QUEUE_MAX; ++n) {
-        assert(muse_notice_take(out, sizeof(out)));
+        assert(consume(out, sizeof(out)));
         int i = 0;
         while (i < MUSE_NOTICE_QUEUE_MAX && strcmp(out, ids[i])) ++i;
         assert(i < MUSE_NOTICE_QUEUE_MAX && !(seen & (1U << i)));
@@ -75,7 +89,7 @@ int main(void) {
     assert(!muse_notice_pending());
     assert(!muse_notice_publish("one", "deduplicated"));
     assert(muse_notice_publish("overflow", "retry accepted"));
-    assert(muse_notice_take(out, sizeof(out)) && !strcmp(out, "retry accepted"));
+    assert(consume(out, sizeof(out)) && !strcmp(out, "retry accepted"));
     return 0;
 }
 '''
@@ -95,8 +109,9 @@ int xSemaphoreGive(SemaphoreHandle_t);
             component = ROOT / 'firmware/esp32/components/muse'
             subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
                             '-pthread', '-fsanitize=address,undefined',
-                            '-I', str(path), '-I', str(component), str(path / 'test.c'),
+                            '-I', str(path), '-I', str(ROOT / 'tests/notice_fakes'), '-I', str(component), str(path / 'test.c'),
                             str(component / 'muse_notice.c'), str(component / 'muse_notice_core.c'),
+                            str(component / 'muse_notice_policy.c'),
                             '-o', str(path / 'test')], check=True)
             for _ in range(10):
                 subprocess.run([str(path / 'test')], check=True, timeout=10)

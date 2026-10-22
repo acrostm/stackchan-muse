@@ -962,9 +962,13 @@ static bool can_record(void)
 
 /* Returns true when a new talk press interrupted playback; the caller must
  * keep that press and enter the normal recording path without losing it. */
-static bool speak_tts_text(const char *text, bool notification, uint32_t *press_turn)
+static bool speak_tts_text(const char *text, bool notification, uint32_t *press_turn,
+                           bool explicit_read, bool *completed)
 {
+    if (completed) *completed = false;
     static int16_t pcm[MUSE_AUDIO_CHUNK];
+    if (take_stop_request()) return false;
+    if (notification && !explicit_read && !muse_notice_automatic_allowed()) return false;
     char caption[96];
     ESP_LOGI(TAG, "%s TTS start (%u chars)",
              notification ? "notification" : "speaker-test", (unsigned)strlen(text));
@@ -997,7 +1001,9 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
     size_t played = 0;
     int64_t deadline = esp_timer_get_time() + 45LL * 1000000;
     while (esp_timer_get_time() < deadline) {
-        if (take_stop_request()) {
+        if (take_stop_request() || (notification &&
+            (!muse_settings_speaker_on() || muse_settings_volume() <= 0 ||
+             (!explicit_read && !muse_notice_automatic_allowed())))) {
             sw_tts_cancel();
             muse_state_set_level(0);
             pre_reset();
@@ -1029,6 +1035,13 @@ static bool speak_tts_text(const char *text, bool notification, uint32_t *press_
              notification ? "notification" : "speaker-test",
              (double)played / MUSE_AUDIO_RATE);
     if (interrupted) return true;
+    const bool synthesized = sw_tts_succeeded();
+    if (!sw_tts_done()) sw_tts_cancel();
+    bool finished = heard && synthesized && muse_settings_speaker_on() &&
+                    muse_settings_volume() > 0 && muse_audio_drain(300) == ESP_OK;
+    if (take_stop_request() || !muse_settings_speaker_on() || muse_settings_volume() <= 0 ||
+        (notification && !explicit_read && !muse_notice_automatic_allowed())) finished = false;
+    if (completed) *completed = finished;
     if (!heard && notification) {
         muse_state_set_caption("%s", caption);
         muse_state_set_reply_pending(true);
@@ -1290,9 +1303,14 @@ static void voice_task(void *arg)
                 pre_reset();
             }
             char notice[MUSE_NOTICE_TEXT_MAX + 1];
-            if (muse_notice_take(notice, sizeof(notice))) {
+            bool explicit_read = false;
+            const muse_notice_status_t notice_status = muse_notice_status();
+            if (notice_status.unread) muse_state_set_reply_pending(true);
+            if (muse_notice_take_next(notice, sizeof(notice), &explicit_read)) {
                 muse_state_set_asleep(false);
-                speak_tts_text(notice, true, &pending_turn);
+                bool played = false;
+                speak_tts_text(notice, true, &pending_turn, explicit_read, &played);
+                muse_notice_finish(played);
                 if (pending_turn) pending_barge = true;
                 memset(notice, 0, sizeof(notice));
                 continue;
@@ -1300,7 +1318,7 @@ static void voice_task(void *arg)
             if (s_tts_test) {
                 s_tts_test = false;
                 speak_tts_text("你好，我是你的 Muse。中文语音播放测试成功。",
-                               false, &pending_turn);
+                               false, &pending_turn, false, NULL);
                 if (pending_turn) pending_barge = true;
                 continue;
             }
@@ -1478,6 +1496,7 @@ bool muse_voice_request_sr_probe(void)
 void muse_voice_request_stop(void)
 {
     atomic_store_explicit(&s_stop_requested, true, memory_order_release);
+    muse_notice_cancel_pending();
     muse_ptt_cancel_current();
 #if CONFIG_MUSE_HATCH
     /* The session backend posts cancellation to its own worker. The Link
